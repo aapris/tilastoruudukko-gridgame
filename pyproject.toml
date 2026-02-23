@@ -1,0 +1,49 @@
+[project]
+name = "tilastoruudukko"
+version = "0.1.0"
+description = "Pervasive grid game — visit statistical grid cells in the real world"
+requires-python = ">=3.13,<3.14"
+
+dependencies = [
+    "django>=5.2,<6",
+    "djangorestframework>=3.15",
+    "django-cors-headers>=4.0",
+    "psycopg[binary]>=3.2",
+    "whitenoise>=6.0",
+    "python-dotenv>=1.0",
+]
+
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "pre-commit>=3.0",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-django>=4.0",
+]
+
+[tool.ruff]
+line-length = 119
+target-version = "py313"
+extend-exclude = ["gridgame/game/migrations"]
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "UP", "B", "SIM", "RUF", "N", "PTH", "ANN", "PT"]
+
+[tool.ruff.lint.per-file-ignores]
+"gridgame/game/models.py" = ["RUF012"]
+"gridgame/game/serializers.py" = ["RUF012"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+lines-after-imports = 2
+known-first-party = ["game", "config"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+pythonpath = ["gridgame"]

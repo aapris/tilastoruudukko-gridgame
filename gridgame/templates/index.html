@@ -1,0 +1,75 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Grid Game</title>
+  <link rel="stylesheet" href="{% static 'vendor/leaflet/leaflet.css' %}">
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+  <!-- Setup screen -->
+  <div id="setup-screen" class="screen active">
+    <div class="setup-container">
+      <h1>Grid Game</h1>
+      <p class="subtitle">Visit as many grid cells as you can!</p>
+      <form id="setup-form">
+        <label for="nickname">Nickname</label>
+        <input type="text" id="nickname" name="nickname" required maxlength="64" placeholder="Your name">
+
+        <label for="grid-size">Grid Size</label>
+        <select id="grid-size" name="grid_size">
+          <option value="5km">5 km</option>
+          <option value="1km" selected>1 km</option>
+          <option value="250m">250 m</option>
+        </select>
+
+        <label for="radius">Radius (meters)</label>
+        <input type="number" id="radius" name="radius_m" value="3000" min="100" max="50000" step="100">
+
+        <label for="min-dwell">Min dwell time (seconds)</label>
+        <input type="number" id="min-dwell" name="min_dwell_s" value="10" min="1" max="300">
+
+        <button type="submit" id="start-btn">Start Game</button>
+      </form>
+      <p id="setup-status" class="status-msg"></p>
+    </div>
+  </div>
+
+  <!-- Game screen -->
+  <div id="game-screen" class="screen">
+    <div id="map"></div>
+    <div id="hud">
+      <div id="score-display">
+        <span id="visited-count">0</span> / <span id="total-count">0</span>
+        (<span id="score-pct">0.0</span>%)
+      </div>
+      <div id="cell-status"></div>
+      <button id="finish-btn">Finish Game</button>
+    </div>
+  </div>
+
+  <!-- Result screen -->
+  <div id="result-screen" class="screen">
+    <div class="result-container">
+      <h1>Game Over!</h1>
+      <p>Player: <span id="result-nickname"></span></p>
+      <p class="big-score"><span id="result-visited">0</span> / <span id="result-total">0</span></p>
+      <p class="big-pct"><span id="result-pct">0.0</span>%</p>
+      <p>Time: <span id="result-time"></span></p>
+      <button id="new-game-btn">New Game</button>
+    </div>
+  </div>
+
+  <script src="{% static 'vendor/leaflet/leaflet.js' %}"></script>
+  <script src="{% static 'vendor/turf.min.js' %}"></script>
+  <script src="{% static 'js/api.js' %}"></script>
+  <script src="{% static 'js/grid.js' %}"></script>
+  <script src="{% static 'js/map.js' %}"></script>
+  <script src="{% static 'js/gps.js' %}"></script>
+  <script src="{% static 'js/app.js' %}"></script>
+</body>
+</html>
