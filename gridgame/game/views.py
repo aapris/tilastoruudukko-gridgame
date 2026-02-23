@@ -8,9 +8,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from game.grid_providers import get_grid_provider
 from game.models import Game, Visit
 from game.serializers import CreateGameSerializer, GameStateSerializer, RecordVisitSerializer
-from game.services import get_cells_in_radius, validate_cell_in_game
 
 
 class CreateGameView(APIView):
@@ -29,18 +29,18 @@ class CreateGameView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        grid_geojson, total_cells = get_cells_in_radius(
+        provider = get_grid_provider(data["grid_type"])
+        grid_geojson, total_cells = provider.get_cells_in_radius(
             center_lat=data["center_lat"],
             center_lon=data["center_lon"],
             radius_m=data["radius_m"],
-            grid_size=data["grid_size"],
         )
 
         game = Game.objects.create(
             nickname=data["nickname"],
             center=Point(data["center_lon"], data["center_lat"], srid=4326),
             radius_m=data["radius_m"],
-            grid_size=data["grid_size"],
+            grid_type=data["grid_type"],
             min_dwell_s=data["min_dwell_s"],
             time_limit_s=data["time_limit_s"],
             total_cells=total_cells,
@@ -107,7 +107,8 @@ class RecordVisitView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not validate_cell_in_game(game.center.x, game.center.y, game.radius_m, game.grid_size, data["cell_id"]):
+        provider = get_grid_provider(game.grid_type)
+        if not provider.validate_cell(game.center.x, game.center.y, game.radius_m, data["cell_id"]):
             return Response(
                 {"error": f"Cell {data['cell_id']} is not in the game's play area."},
                 status=status.HTTP_400_BAD_REQUEST,

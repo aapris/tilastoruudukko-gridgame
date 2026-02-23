@@ -78,7 +78,7 @@ const App = {
       center_lat: position.lat,
       center_lon: position.lon,
       radius_m: parseInt(document.getElementById('radius').value, 10),
-      grid_size: document.getElementById('grid-size').value,
+      grid_type: document.getElementById('grid-type').value,
       min_dwell_s: parseInt(document.getElementById('min-dwell').value, 10),
       time_limit_s: null,
     };

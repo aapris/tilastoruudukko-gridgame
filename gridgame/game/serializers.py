@@ -12,7 +12,7 @@ class CreateGameSerializer(serializers.Serializer):
     center_lat = serializers.FloatField()
     center_lon = serializers.FloatField()
     radius_m = serializers.IntegerField(min_value=100, max_value=50000)
-    grid_size = serializers.ChoiceField(choices=Game.GRID_SIZE_CHOICES)
+    grid_type = serializers.ChoiceField(choices=Game.GRID_TYPE_CHOICES)
     min_dwell_s = serializers.IntegerField(min_value=1, default=10)
     time_limit_s = serializers.IntegerField(required=False, allow_null=True, default=None)
 

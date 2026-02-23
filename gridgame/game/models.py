@@ -39,14 +39,22 @@ class GridCell(gis_models.Model):
 class Game(models.Model):
     """A single game session where a player visits grid cells."""
 
-    GRID_SIZE_CHOICES = GridCell.GRID_SIZE_CHOICES
+    GRID_TYPE_CHOICES = [
+        ("stat_250m", "Statistical 250m"),
+        ("stat_1km", "Statistical 1km"),
+        ("stat_5km", "Statistical 5km"),
+        ("h3_res9", "H3 ~175m"),
+        ("h3_res8", "H3 ~460m"),
+        ("h3_res7", "H3 ~1.2km"),
+        ("h3_res6", "H3 ~3.2km"),
+    ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nickname = models.CharField(max_length=64)
 
     center = gis_models.PointField(srid=4326)
     radius_m = models.IntegerField()
-    grid_size = models.CharField(max_length=4, choices=GRID_SIZE_CHOICES)
+    grid_type = models.CharField(max_length=16, choices=GRID_TYPE_CHOICES)
 
     min_dwell_s = models.IntegerField(default=10)
     time_limit_s = models.IntegerField(null=True, blank=True)

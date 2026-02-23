@@ -20,11 +20,19 @@
         <label for="nickname">Nickname</label>
         <input type="text" id="nickname" name="nickname" required maxlength="64" placeholder="Your name">
 
-        <label for="grid-size">Grid Size</label>
-        <select id="grid-size" name="grid_size">
-          <option value="5km">5 km</option>
-          <option value="1km" selected>1 km</option>
-          <option value="250m">250 m</option>
+        <label for="grid-type">Grid Type</label>
+        <select id="grid-type" name="grid_type">
+          <optgroup label="Statistical (Tilastokeskus)">
+            <option value="stat_5km">Statistical 5 km</option>
+            <option value="stat_1km" selected>Statistical 1 km</option>
+            <option value="stat_250m">Statistical 250 m</option>
+          </optgroup>
+          <optgroup label="H3 Hexagonal">
+            <option value="h3_res6">H3 ~3.2 km</option>
+            <option value="h3_res7">H3 ~1.2 km</option>
+            <option value="h3_res8">H3 ~460 m</option>
+            <option value="h3_res9">H3 ~175 m</option>
+          </optgroup>
         </select>
 
         <label for="radius">Radius (meters)</label>

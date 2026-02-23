@@ -12,6 +12,7 @@ dependencies = [
     "whitenoise>=6.0",
     "python-dotenv>=1.0",
     "gunicorn>=25.1.0",
+    "h3>=4.4.2",
 ]
 
 

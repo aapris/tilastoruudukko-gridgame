@@ -44,7 +44,7 @@ const GameMap = {
           fillColor: visited ? '#4CAF50' : 'transparent',
           fillOpacity: visited ? 0.5 : 0,
           color: '#2196F3',
-          weight: 1,
+          weight: 3,
           opacity: 0.6,
         };
       },
@@ -100,7 +100,7 @@ const GameMap = {
         const isVisited = App.state.visitedCells[id];
         layer.setStyle({
           color: '#2196F3',
-          weight: 1,
+          weight: 3,
           opacity: 0.6,
           fillColor: isVisited ? '#4CAF50' : 'transparent',
           fillOpacity: isVisited ? 0.5 : 0,
