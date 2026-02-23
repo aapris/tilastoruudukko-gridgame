@@ -39,3 +39,43 @@ test:
 # Django shell
 shell:
     uv run python gridgame/manage.py shell
+
+# --- Docker commands ---
+
+# Build and start all containers
+docker-up:
+    docker compose up --build
+
+# Start containers in background
+docker-up-d:
+    docker compose up --build -d
+
+# Stop containers
+docker-down:
+    docker compose down
+
+# Run migrations in Docker
+docker-migrate:
+    docker compose exec web uv run python gridgame/manage.py migrate
+
+# Create migrations in Docker
+docker-makemigrations:
+    docker compose exec web uv run python gridgame/manage.py makemigrations
+
+# Load all grid data in Docker
+docker-load-grid-all:
+    docker compose exec web uv run python gridgame/manage.py load_grid_data --grid-size 5km --file data/raw/hila5km_linkki.csv --clear
+    docker compose exec web uv run python gridgame/manage.py load_grid_data --grid-size 1km --file data/raw/hila1km_linkki.csv --clear
+    docker compose exec web uv run python gridgame/manage.py load_grid_data --grid-size 250m --file data/raw/hila250m_linkki.csv --clear
+
+# Load 5km grid data in Docker
+docker-load-grid-5km:
+    docker compose exec web uv run python gridgame/manage.py load_grid_data --grid-size 5km --file data/raw/hila5km_linkki.csv --clear
+
+# Django shell in Docker
+docker-shell:
+    docker compose exec web uv run python gridgame/manage.py shell
+
+# Run any manage.py command in Docker (e.g. just docker-manage createsuperuser)
+docker-manage *ARGS:
+    docker compose exec web uv run python gridgame/manage.py {{ ARGS }}
