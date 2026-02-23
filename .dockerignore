@@ -1,0 +1,12 @@
+.venv/
+.git/
+.ruff_cache/
+.claude/
+__pycache__/
+*.py[cod]
+*.egg-info/
+gridgame/staticfiles/
+.env
+.env.*
+!.env.example
+tmp/

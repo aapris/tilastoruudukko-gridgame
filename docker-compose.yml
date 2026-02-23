@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgis/postgis:17-3.4
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: tilastoruudukko
+      POSTGRES_USER: gridgame
+      POSTGRES_PASSWORD: gridgame
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U gridgame -d tilastoruudukko" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    # Development: runserver with auto-reload
+    command: uv run python gridgame/manage.py runserver 0.0.0.0:8000
+    # Production: comment out command above to use Dockerfile default (gunicorn)
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      DB_NAME: tilastoruudukko
+      DB_USER: gridgame
+      DB_PASSWORD: gridgame
+      DB_HOST: db
+      DB_PORT: 5432
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: dev-insecure-docker-key
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
