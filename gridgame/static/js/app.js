@@ -271,6 +271,7 @@ const App = {
   /** Reset state and go back to the setup screen. */
   onNewGame() {
     GPS.stop();
+    GameMap.destroy();
     if (this.state.dwellTimer) clearTimeout(this.state.dwellTimer);
 
     this.state = {

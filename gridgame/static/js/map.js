@@ -115,11 +115,27 @@ const GameMap = {
   },
 
   /**
+   * Destroy the game map and clean up resources.
+   */
+  destroy() {
+    if (this.map) {
+      this.map.off();
+      this.map.remove();
+      this.map = null;
+    }
+    this.gridLayer = null;
+    this.positionMarker = null;
+  },
+
+  /**
    * Initialize the Leaflet map.
    * @param {number} lat - Initial center latitude.
    * @param {number} lon - Initial center longitude.
    */
   init(lat, lon) {
+    // Clean up any existing map instance
+    this.destroy();
+
     // Fix Leaflet icon paths for static serving
     L.Icon.Default.imagePath = '/static/vendor/leaflet/';
 
