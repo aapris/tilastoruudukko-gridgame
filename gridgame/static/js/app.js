@@ -21,11 +21,15 @@ const App = {
   init() {
     this.els = {
       setupScreen: document.getElementById('setup-screen'),
+      pickerScreen: document.getElementById('picker-screen'),
       gameScreen: document.getElementById('game-screen'),
       resultScreen: document.getElementById('result-screen'),
       setupForm: document.getElementById('setup-form'),
       setupStatus: document.getElementById('setup-status'),
-      startBtn: document.getElementById('start-btn'),
+      chooseLocationBtn: document.getElementById('choose-location-btn'),
+      pickerStatus: document.getElementById('picker-status'),
+      pickerBackBtn: document.getElementById('picker-back-btn'),
+      pickerStartBtn: document.getElementById('picker-start-btn'),
       visitedCount: document.getElementById('visited-count'),
       totalCount: document.getElementById('total-count'),
       scorePct: document.getElementById('score-pct'),
@@ -39,7 +43,9 @@ const App = {
       newGameBtn: document.getElementById('new-game-btn'),
     };
 
-    this.els.setupForm.addEventListener('submit', (e) => this.onStartGame(e));
+    this.els.setupForm.addEventListener('submit', (e) => this.onChooseLocation(e));
+    this.els.pickerBackBtn.addEventListener('click', () => this.onPickerBack());
+    this.els.pickerStartBtn.addEventListener('click', () => this.onConfirmStart());
     this.els.finishBtn.addEventListener('click', () => this.onFinishGame());
     this.els.newGameBtn.addEventListener('click', () => this.onNewGame());
   },
@@ -54,12 +60,12 @@ const App = {
   },
 
   /**
-   * Handle the game creation form submission.
+   * Handle form submission — open the picker screen.
    * @param {Event} e - Submit event.
    */
-  async onStartGame(e) {
+  async onChooseLocation(e) {
     e.preventDefault();
-    this.els.startBtn.disabled = true;
+    this.els.chooseLocationBtn.disabled = true;
     this.els.setupStatus.textContent = 'Getting your location...';
 
     let position;
@@ -67,16 +73,57 @@ const App = {
       position = await GPS.getCurrentPosition();
     } catch (err) {
       this.els.setupStatus.textContent = err.message;
-      this.els.startBtn.disabled = false;
+      this.els.chooseLocationBtn.disabled = false;
       return;
     }
 
-    this.els.setupStatus.textContent = 'Creating game...';
+    const radiusM = parseInt(document.getElementById('radius').value, 10);
+
+    this.showScreen('picker-screen');
+    this.els.setupStatus.textContent = '';
+
+    GameMap.initPicker(position.lat, position.lon, radiusM);
+
+    // Live-update player position on picker map
+    GPS.start(
+      (lat, lon) => GameMap.updatePickerPosition(lat, lon),
+      (errMsg) => { this.els.pickerStatus.textContent = errMsg; }
+    );
+
+    // Wire up click feedback
+    GameMap.pickerMap.on('click', (e) => {
+      const playerLatLng = GameMap.pickerPositionMarker.getLatLng();
+      const distance = playerLatLng.distanceTo(e.latlng);
+      if (distance > radiusM) {
+        this.els.pickerStatus.textContent = 'Too far — you must be inside the play area';
+      } else {
+        this.els.pickerStatus.textContent = 'Play area moved. Tap Start Game to begin!';
+      }
+    });
+  },
+
+  /** Go back from picker to setup screen. */
+  onPickerBack() {
+    GPS.stop();
+    GameMap.destroyPicker();
+    this.els.chooseLocationBtn.disabled = false;
+    this.showScreen('setup-screen');
+  },
+
+  /** Confirm picker selection and create the game. */
+  async onConfirmStart() {
+    this.els.pickerStartBtn.disabled = true;
+    this.els.pickerStatus.textContent = 'Creating game...';
+
+    GPS.stop();
+
+    const center = GameMap.getPickerCenter();
+    GameMap.destroyPicker();
 
     const formData = {
       nickname: document.getElementById('nickname').value,
-      center_lat: position.lat,
-      center_lon: position.lon,
+      center_lat: center.lat,
+      center_lon: center.lon,
       radius_m: parseInt(document.getElementById('radius').value, 10),
       grid_type: document.getElementById('grid-type').value,
       min_dwell_s: parseInt(document.getElementById('min-dwell').value, 10),
@@ -97,7 +144,7 @@ const App = {
       this.showScreen('game-screen');
       this.updateScoreDisplay();
 
-      GameMap.init(position.lat, position.lon);
+      GameMap.init(center.lat, center.lon);
       GameMap.loadGrid(this.state.grid, this.state.visitedCells);
 
       GPS.start(
@@ -105,8 +152,11 @@ const App = {
         (errMsg) => { this.els.cellStatus.textContent = errMsg; }
       );
     } catch (err) {
-      this.els.setupStatus.textContent = `Error: ${err.message}`;
-      this.els.startBtn.disabled = false;
+      this.els.pickerStatus.textContent = `Error: ${err.message}`;
+      this.els.pickerStartBtn.disabled = false;
+      // Re-init picker so user can try again
+      this.showScreen('setup-screen');
+      this.els.chooseLocationBtn.disabled = false;
     }
   },
 
@@ -235,7 +285,8 @@ const App = {
       totalCells: 0,
     };
 
-    this.els.startBtn.disabled = false;
+    this.els.chooseLocationBtn.disabled = false;
+    this.els.pickerStartBtn.disabled = false;
     this.els.finishBtn.disabled = false;
     this.els.setupStatus.textContent = '';
     this.showScreen('setup-screen');

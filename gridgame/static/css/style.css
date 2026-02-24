@@ -102,6 +102,59 @@ button:disabled {
   min-height: 1.2em;
 }
 
+/* Picker screen */
+#picker-screen {
+  flex-direction: column;
+}
+
+#picker-map {
+  flex: 1;
+  width: 100%;
+}
+
+#picker-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: rgba(26, 26, 46, 0.92);
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+#picker-status {
+  flex: 1;
+  font-size: 0.85rem;
+  color: #aaa;
+  text-align: center;
+}
+
+.picker-btn {
+  width: auto;
+  margin: 0;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+}
+
+.picker-back-btn {
+  background: #666;
+}
+
+.picker-back-btn:active {
+  background: #444;
+}
+
+.picker-start-btn {
+  background: #4CAF50;
+}
+
+.picker-start-btn:active {
+  background: #388E3C;
+}
+
 /* Game screen */
 #game-screen {
   flex-direction: column;
