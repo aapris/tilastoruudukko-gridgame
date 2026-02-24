@@ -11,8 +11,29 @@
   <link rel="stylesheet" href="{% static 'css/style.css' %}">
 </head>
 <body>
+  <!-- Lobby screen -->
+  <div id="lobby-screen" class="screen active">
+    <div class="lobby-container">
+      <h1>Grid Game</h1>
+      <p class="subtitle">Visit as many grid cells as you can!</p>
+
+      <div id="active-games-section" class="lobby-section" style="display:none">
+        <h2>Active Games</h2>
+        <div id="active-games-list" class="game-list"></div>
+      </div>
+
+      <div id="finished-games-section" class="lobby-section" style="display:none">
+        <h2>Finished Games</h2>
+        <div id="finished-games-list" class="game-list"></div>
+      </div>
+
+      <button id="lobby-new-game-btn">New Game</button>
+      <p id="lobby-status" class="status-msg"></p>
+    </div>
+  </div>
+
   <!-- Setup screen -->
-  <div id="setup-screen" class="screen active">
+  <div id="setup-screen" class="screen">
     <div class="setup-container">
       <h1>Grid Game</h1>
       <p class="subtitle">Visit as many grid cells as you can!</p>
@@ -43,6 +64,7 @@
 
         <button type="submit" id="choose-location-btn">Choose Location</button>
       </form>
+      <button id="setup-back-btn">Back</button>
       <p id="setup-status" class="status-msg"></p>
     </div>
   </div>

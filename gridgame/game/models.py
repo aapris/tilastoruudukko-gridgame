@@ -50,6 +50,7 @@ class Game(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    player_token = models.UUIDField(db_index=True, default=uuid.uuid4)
     nickname = models.CharField(max_length=64)
 
     center = gis_models.PointField(srid=4326)

@@ -236,3 +236,92 @@ button:disabled {
 #new-game-btn {
   max-width: 300px;
 }
+
+/* Lobby screen */
+#lobby-screen {
+  align-items: center;
+  justify-content: flex-start;
+  overflow-y: auto;
+}
+
+.lobby-container {
+  width: 90%;
+  max-width: 400px;
+  padding: 2rem 0;
+}
+
+.lobby-container h1 {
+  font-size: 2rem;
+  margin-bottom: 0.25rem;
+  color: #4CAF50;
+}
+
+.lobby-section {
+  margin-top: 1.5rem;
+}
+
+.lobby-section h2 {
+  font-size: 1rem;
+  color: #aaa;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.game-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.game-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #16213e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+.game-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.game-card-info strong {
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.game-card-meta {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.game-card-btn {
+  width: auto;
+  margin: 0;
+  padding: 0.4rem 1rem;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+  margin-left: 0.75rem;
+}
+
+#lobby-new-game-btn {
+  margin-top: 1.5rem;
+}
+
+/* Setup back button */
+#setup-back-btn {
+  background: #666;
+  margin-top: 0.75rem;
+}
+
+#setup-back-btn:active {
+  background: #444;
+}

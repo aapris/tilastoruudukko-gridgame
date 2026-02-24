@@ -86,6 +86,51 @@ class GameStateSerializer(serializers.ModelSerializer):
         return int((end - obj.started_at).total_seconds())
 
 
+class GameListSerializer(serializers.ModelSerializer):
+    """Compact serializer for listing player's games."""
+
+    game_id = serializers.UUIDField(source="id")
+    visited_count = serializers.SerializerMethodField()
+    score_pct = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Game
+        fields = [
+            "game_id",
+            "nickname",
+            "grid_type",
+            "total_cells",
+            "visited_count",
+            "score_pct",
+            "started_at",
+            "finished_at",
+        ]
+
+    def get_visited_count(self, obj: Game) -> int:
+        """Return the number of unique visited cells.
+
+        Args:
+            obj: Game instance.
+
+        Returns:
+            Count of visits.
+        """
+        return obj.visits.count()
+
+    def get_score_pct(self, obj: Game) -> float:
+        """Return the visit percentage.
+
+        Args:
+            obj: Game instance.
+
+        Returns:
+            Percentage of cells visited.
+        """
+        if obj.total_cells == 0:
+            return 0.0
+        return round(obj.visits.count() / obj.total_cells * 100, 1)
+
+
 class RecordVisitSerializer(serializers.Serializer):
     """Serializer for visit recording requests."""
 

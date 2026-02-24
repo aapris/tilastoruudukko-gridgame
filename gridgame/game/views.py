@@ -10,7 +10,35 @@ from rest_framework.views import APIView
 
 from game.grid_providers import get_grid_provider
 from game.models import Game, Visit
-from game.serializers import CreateGameSerializer, GameStateSerializer, RecordVisitSerializer
+from game.serializers import CreateGameSerializer, GameListSerializer, GameStateSerializer, RecordVisitSerializer
+
+
+class ListGamesView(APIView):
+    """List games for a player token."""
+
+    def get(self, request: Request) -> Response:
+        """Handle GET request to list player's games.
+
+        Args:
+            request: DRF request with X-Player-Token header.
+
+        Returns:
+            Response with list of games.
+        """
+        player_token = request.headers.get("X-Player-Token")
+        if not player_token:
+            return Response({"error": "X-Player-Token header is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        games = Game.objects.filter(player_token=player_token)
+
+        status_filter = request.query_params.get("status")
+        if status_filter == "active":
+            games = games.filter(finished_at__isnull=True)
+        elif status_filter == "finished":
+            games = games.filter(finished_at__isnull=False)
+
+        serializer = GameListSerializer(games, many=True)
+        return Response(serializer.data)
 
 
 class CreateGameView(APIView):
@@ -36,7 +64,12 @@ class CreateGameView(APIView):
             radius_m=data["radius_m"],
         )
 
+        player_token = request.headers.get("X-Player-Token")
+        if not player_token:
+            return Response({"error": "X-Player-Token header is required."}, status=status.HTTP_400_BAD_REQUEST)
+
         game = Game.objects.create(
+            player_token=player_token,
             nickname=data["nickname"],
             center=Point(data["center_lon"], data["center_lat"], srid=4326),
             radius_m=data["radius_m"],
@@ -66,16 +99,31 @@ class GameStateView(APIView):
     def get(self, request: Request, game_id: str) -> Response:
         """Handle GET request for game state.
 
+        Supports ?include_grid=true to re-fetch and include grid GeoJSON
+        (needed when resuming a game).
+
         Args:
             request: DRF request.
             game_id: UUID of the game.
 
         Returns:
-            Response with game state and visits.
+            Response with game state and visits, optionally with grid.
         """
         game = get_object_or_404(Game, pk=game_id)
         serializer = GameStateSerializer(game)
-        return Response(serializer.data)
+        data = serializer.data
+
+        if request.query_params.get("include_grid") == "true":
+            provider = get_grid_provider(game.grid_type)
+            grid_geojson, _total = provider.get_cells_in_radius(
+                center_lat=game.center.y,
+                center_lon=game.center.x,
+                radius_m=game.radius_m,
+            )
+            data["grid"] = grid_geojson
+            data["min_dwell_s"] = game.min_dwell_s
+
+        return Response(data)
 
 
 class RecordVisitView(APIView):

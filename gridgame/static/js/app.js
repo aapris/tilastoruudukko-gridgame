@@ -18,12 +18,20 @@ const App = {
   els: {},
 
   /** Initialize the application. */
-  init() {
+  async init() {
     this.els = {
+      lobbyScreen: document.getElementById('lobby-screen'),
+      lobbyNewGameBtn: document.getElementById('lobby-new-game-btn'),
+      lobbyStatus: document.getElementById('lobby-status'),
+      activeGamesSection: document.getElementById('active-games-section'),
+      activeGamesList: document.getElementById('active-games-list'),
+      finishedGamesSection: document.getElementById('finished-games-section'),
+      finishedGamesList: document.getElementById('finished-games-list'),
       setupScreen: document.getElementById('setup-screen'),
       pickerScreen: document.getElementById('picker-screen'),
       gameScreen: document.getElementById('game-screen'),
       resultScreen: document.getElementById('result-screen'),
+      setupBackBtn: document.getElementById('setup-back-btn'),
       setupForm: document.getElementById('setup-form'),
       setupStatus: document.getElementById('setup-status'),
       chooseLocationBtn: document.getElementById('choose-location-btn'),
@@ -43,11 +51,15 @@ const App = {
       newGameBtn: document.getElementById('new-game-btn'),
     };
 
+    this.els.lobbyNewGameBtn.addEventListener('click', () => this.onLobbyNewGame());
+    this.els.setupBackBtn.addEventListener('click', () => this.loadLobby());
     this.els.setupForm.addEventListener('submit', (e) => this.onChooseLocation(e));
     this.els.pickerBackBtn.addEventListener('click', () => this.onPickerBack());
     this.els.pickerStartBtn.addEventListener('click', () => this.onConfirmStart());
     this.els.finishBtn.addEventListener('click', () => this.onFinishGame());
     this.els.newGameBtn.addEventListener('click', () => this.onNewGame());
+
+    await this.loadLobby();
   },
 
   /**
@@ -57,6 +69,116 @@ const App = {
   showScreen(screenId) {
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
     document.getElementById(screenId).classList.add('active');
+  },
+
+  /** Load lobby data and show lobby screen. */
+  async loadLobby() {
+    this.els.lobbyStatus.textContent = 'Loading...';
+
+    try {
+      const [active, finished] = await Promise.all([
+        API.listGames('active'),
+        API.listGames('finished'),
+      ]);
+
+      this.renderGameList(this.els.activeGamesList, active, true);
+      this.renderGameList(this.els.finishedGamesList, finished, false);
+
+      this.els.activeGamesSection.style.display = active.length ? '' : 'none';
+      this.els.finishedGamesSection.style.display = finished.length ? '' : 'none';
+
+      this.els.lobbyStatus.textContent = '';
+    } catch {
+      this.els.lobbyStatus.textContent = '';
+    }
+
+    this.showScreen('lobby-screen');
+  },
+
+  /**
+   * Render a list of game cards.
+   * @param {HTMLElement} container - Container element.
+   * @param {Array} games - List of game objects.
+   * @param {boolean} isActive - Whether these are active (resumable) games.
+   */
+  renderGameList(container, games, isActive) {
+    container.innerHTML = '';
+    for (const game of games) {
+      const card = document.createElement('div');
+      card.className = 'game-card';
+
+      const date = new Date(game.started_at).toLocaleDateString();
+      const gridLabel = game.grid_type.replace('stat_', '').replace('h3_res', 'H3 r');
+
+      card.innerHTML = `
+        <div class="game-card-info">
+          <strong>${game.nickname}</strong>
+          <span class="game-card-meta">${gridLabel} &middot; ${game.visited_count}/${game.total_cells} (${game.score_pct}%) &middot; ${date}</span>
+        </div>
+      `;
+
+      if (isActive) {
+        const btn = document.createElement('button');
+        btn.className = 'game-card-btn';
+        btn.textContent = 'Resume';
+        btn.addEventListener('click', () => this.onResumeGame(game.game_id));
+        card.appendChild(btn);
+      }
+
+      container.appendChild(card);
+    }
+  },
+
+  /** Navigate from lobby to setup screen. */
+  onLobbyNewGame() {
+    this.showScreen('setup-screen');
+  },
+
+  /**
+   * Resume an active game.
+   * @param {string} gameId - UUID of the game to resume.
+   */
+  async onResumeGame(gameId) {
+    this.els.lobbyStatus.textContent = 'Loading game...';
+
+    try {
+      const result = await API.getGameWithGrid(gameId);
+
+      this.state.gameId = result.game_id;
+      this.state.nickname = result.nickname;
+      this.state.grid = result.grid;
+      this.state.totalCells = result.total_cells;
+      this.state.minDwellS = result.min_dwell_s;
+      this.state.currentCellId = null;
+
+      // Restore visited cells from server state
+      this.state.visitedCells = {};
+      for (const visit of result.visits) {
+        this.state.visitedCells[visit.cell_id] = {
+          visitCount: visit.visit_count,
+          dwellS: visit.dwell_s,
+        };
+      }
+
+      // Use center of grid bounding box for map init
+      const bounds = L.geoJSON(this.state.grid).getBounds();
+      const center = bounds.getCenter();
+
+      this.showScreen('game-screen');
+      this.updateScoreDisplay();
+
+      GameMap.init(center.lat, center.lng);
+      GameMap.loadGrid(this.state.grid, this.state.visitedCells);
+
+      GPS.start(
+        (lat, lon, accuracy) => this.onPositionUpdate(lat, lon, accuracy),
+        (errMsg) => { this.els.cellStatus.textContent = errMsg; }
+      );
+
+      this.els.lobbyStatus.textContent = '';
+    } catch (err) {
+      this.els.lobbyStatus.textContent = `Error: ${err.message}`;
+    }
   },
 
   /**
@@ -268,7 +390,7 @@ const App = {
     }
   },
 
-  /** Reset state and go back to the setup screen. */
+  /** Reset state and go back to the lobby screen. */
   onNewGame() {
     GPS.stop();
     GameMap.destroy();
@@ -290,7 +412,7 @@ const App = {
     this.els.pickerStartBtn.disabled = false;
     this.els.finishBtn.disabled = false;
     this.els.setupStatus.textContent = '';
-    this.showScreen('setup-screen');
+    this.loadLobby();
   },
 
   /**
