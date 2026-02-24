@@ -41,23 +41,30 @@
         <label for="nickname">Nickname</label>
         <input type="text" id="nickname" name="nickname" required maxlength="64" placeholder="Your name">
 
-        <label for="grid-type">Grid Type</label>
-        <select id="grid-type" name="grid_type">
-          <optgroup label="Statistical (Tilastokeskus)">
-            <option value="stat_5km">Statistical 5 km</option>
-            <option value="stat_1km" selected>Statistical 1 km</option>
-            <option value="stat_250m">Statistical 250 m</option>
-          </optgroup>
-          <optgroup label="H3 Hexagonal">
-            <option value="h3_res6">H3 ~3.2 km</option>
-            <option value="h3_res7">H3 ~1.2 km</option>
-            <option value="h3_res8">H3 ~460 m</option>
-            <option value="h3_res9">H3 ~175 m</option>
-          </optgroup>
+        <label for="board-select">Game Board</label>
+        <select id="board-select">
+          <option value="">Custom area (pick on map)</option>
         </select>
 
-        <label for="radius">Radius (meters)</label>
-        <input type="number" id="radius" name="radius_m" value="3000" min="100" max="50000" step="100">
+        <div id="custom-area-fields">
+          <label for="grid-type">Grid Type</label>
+          <select id="grid-type" name="grid_type">
+            <optgroup label="Statistical (Tilastokeskus)">
+              <option value="stat_5km">Statistical 5 km</option>
+              <option value="stat_1km" selected>Statistical 1 km</option>
+              <option value="stat_250m">Statistical 250 m</option>
+            </optgroup>
+            <optgroup label="H3 Hexagonal">
+              <option value="h3_res6">H3 ~3.2 km</option>
+              <option value="h3_res7">H3 ~1.2 km</option>
+              <option value="h3_res8">H3 ~460 m</option>
+              <option value="h3_res9">H3 ~175 m</option>
+            </optgroup>
+          </select>
+
+          <label for="radius">Radius (meters)</label>
+          <input type="number" id="radius" name="radius_m" value="3000" min="100" max="50000" step="100">
+        </div>
 
         <label for="min-dwell">Min dwell time (seconds)</label>
         <input type="number" id="min-dwell" name="min_dwell_s" value="10" min="1" max="300">
@@ -83,9 +90,12 @@
   <div id="game-screen" class="screen">
     <div id="map"></div>
     <div id="hud">
-      <div id="score-display">
-        <span id="visited-count">0</span> / <span id="total-count">0</span>
-        (<span id="score-pct">0.0</span>%)
+      <div id="hud-left">
+        <div id="score-display">
+          <span id="visited-count">0</span> / <span id="total-count">0</span>
+          (<span id="score-pct">0.0</span>%)
+        </div>
+        <div id="board-name"></div>
       </div>
       <div id="cell-status"></div>
       <button id="finish-btn">Finish Game</button>

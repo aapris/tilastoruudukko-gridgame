@@ -95,6 +95,7 @@ CORS_ALLOW_ALL_ORIGINS = DEBUG
 
 # DRF
 REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],

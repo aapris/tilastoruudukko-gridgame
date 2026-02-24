@@ -12,7 +12,11 @@ const App = {
     dwellTimer: null,
     minDwellS: 10,
     totalCells: 0,
+    boardName: null,
   },
+
+  /** Cached boards list. */
+  boards: [],
 
   /** DOM element references. */
   els: {},
@@ -31,10 +35,13 @@ const App = {
       pickerScreen: document.getElementById('picker-screen'),
       gameScreen: document.getElementById('game-screen'),
       resultScreen: document.getElementById('result-screen'),
+      boardSelect: document.getElementById('board-select'),
+      customAreaFields: document.getElementById('custom-area-fields'),
       setupBackBtn: document.getElementById('setup-back-btn'),
       setupForm: document.getElementById('setup-form'),
       setupStatus: document.getElementById('setup-status'),
       chooseLocationBtn: document.getElementById('choose-location-btn'),
+      boardNameDisplay: document.getElementById('board-name'),
       pickerStatus: document.getElementById('picker-status'),
       pickerBackBtn: document.getElementById('picker-back-btn'),
       pickerStartBtn: document.getElementById('picker-start-btn'),
@@ -52,6 +59,7 @@ const App = {
     };
 
     this.els.lobbyNewGameBtn.addEventListener('click', () => this.onLobbyNewGame());
+    this.els.boardSelect.addEventListener('change', () => this.onBoardSelectChange());
     this.els.setupBackBtn.addEventListener('click', () => this.loadLobby());
     this.els.setupForm.addEventListener('submit', (e) => this.onChooseLocation(e));
     this.els.pickerBackBtn.addEventListener('click', () => this.onPickerBack());
@@ -109,11 +117,12 @@ const App = {
 
       const date = new Date(game.started_at).toLocaleDateString();
       const gridLabel = game.grid_type.replace('stat_', '').replace('h3_res', 'H3 r');
+      const boardLabel = game.board_name ? `${game.board_name} &middot; ` : '';
 
       card.innerHTML = `
         <div class="game-card-info">
           <strong>${game.nickname}</strong>
-          <span class="game-card-meta">${gridLabel} &middot; ${game.visited_count}/${game.total_cells} (${game.score_pct}%) &middot; ${date}</span>
+          <span class="game-card-meta">${boardLabel}${gridLabel} &middot; ${game.visited_count}/${game.total_cells} (${game.score_pct}%) &middot; ${date}</span>
         </div>
       `;
 
@@ -129,9 +138,34 @@ const App = {
     }
   },
 
-  /** Navigate from lobby to setup screen. */
-  onLobbyNewGame() {
+  /** Navigate from lobby to setup screen, fetching boards. */
+  async onLobbyNewGame() {
     this.showScreen('setup-screen');
+
+    try {
+      this.boards = await API.listBoards();
+    } catch {
+      this.boards = [];
+    }
+
+    // Populate board selector
+    const sel = this.els.boardSelect;
+    sel.innerHTML = '<option value="">Custom area (pick on map)</option>';
+    for (const board of this.boards) {
+      const opt = document.createElement('option');
+      opt.value = board.id;
+      opt.textContent = `${board.name} (${board.grid_type.replace('stat_', '').replace('h3_res', 'H3 r')})`;
+      sel.appendChild(opt);
+    }
+
+    this.onBoardSelectChange();
+  },
+
+  /** Toggle custom area fields based on board selection. */
+  onBoardSelectChange() {
+    const boardSelected = this.els.boardSelect.value !== '';
+    this.els.customAreaFields.style.display = boardSelected ? 'none' : '';
+    this.els.chooseLocationBtn.textContent = boardSelected ? 'Start Game' : 'Choose Location';
   },
 
   /**
@@ -143,38 +177,7 @@ const App = {
 
     try {
       const result = await API.getGameWithGrid(gameId);
-
-      this.state.gameId = result.game_id;
-      this.state.nickname = result.nickname;
-      this.state.grid = result.grid;
-      this.state.totalCells = result.total_cells;
-      this.state.minDwellS = result.min_dwell_s;
-      this.state.currentCellId = null;
-
-      // Restore visited cells from server state
-      this.state.visitedCells = {};
-      for (const visit of result.visits) {
-        this.state.visitedCells[visit.cell_id] = {
-          visitCount: visit.visit_count,
-          dwellS: visit.dwell_s,
-        };
-      }
-
-      // Use center of grid bounding box for map init
-      const bounds = L.geoJSON(this.state.grid).getBounds();
-      const center = bounds.getCenter();
-
-      this.showScreen('game-screen');
-      this.updateScoreDisplay();
-
-      GameMap.init(center.lat, center.lng);
-      GameMap.loadGrid(this.state.grid, this.state.visitedCells);
-
-      GPS.start(
-        (lat, lon, accuracy) => this.onPositionUpdate(lat, lon, accuracy),
-        (errMsg) => { this.els.cellStatus.textContent = errMsg; }
-      );
-
+      this._startGame(result, result.visits);
       this.els.lobbyStatus.textContent = '';
     } catch (err) {
       this.els.lobbyStatus.textContent = `Error: ${err.message}`;
@@ -182,12 +185,38 @@ const App = {
   },
 
   /**
-   * Handle form submission — open the picker screen.
+   * Handle form submission — board game starts directly, custom area opens picker.
    * @param {Event} e - Submit event.
    */
   async onChooseLocation(e) {
     e.preventDefault();
     this.els.chooseLocationBtn.disabled = true;
+    this.els.setupStatus.textContent = '';
+
+    const boardId = this.els.boardSelect.value;
+
+    if (boardId) {
+      // Board-based: create game directly
+      this.els.setupStatus.textContent = 'Creating game...';
+
+      const formData = {
+        nickname: document.getElementById('nickname').value,
+        board_id: parseInt(boardId, 10),
+        min_dwell_s: parseInt(document.getElementById('min-dwell').value, 10),
+        time_limit_s: null,
+      };
+
+      try {
+        const result = await API.createGame(formData);
+        this._startGame(result);
+      } catch (err) {
+        this.els.setupStatus.textContent = `Error: ${err.message}`;
+        this.els.chooseLocationBtn.disabled = false;
+      }
+      return;
+    }
+
+    // Custom area: open picker
     this.els.setupStatus.textContent = 'Getting your location...';
 
     let position;
@@ -232,6 +261,53 @@ const App = {
     this.showScreen('setup-screen');
   },
 
+  /**
+   * Start a game from API response data.
+   * @param {Object} result - API response from createGame or getGameWithGrid.
+   * @param {Object} [visits] - Pre-existing visits (for resume). Defaults to empty.
+   */
+  _startGame(result, visits) {
+    this.state.gameId = result.game_id;
+    this.state.nickname = result.nickname;
+    this.state.grid = result.grid;
+    this.state.totalCells = result.total_cells;
+    this.state.minDwellS = result.min_dwell_s;
+    this.state.currentCellId = null;
+    this.state.boardName = result.board_name || null;
+
+    // Restore or initialize visited cells
+    this.state.visitedCells = {};
+    if (visits) {
+      for (const visit of visits) {
+        this.state.visitedCells[visit.cell_id] = {
+          visitCount: visit.visit_count,
+          dwellS: visit.dwell_s,
+        };
+      }
+    }
+
+    // Use center of grid bounding box for map init
+    const bounds = L.geoJSON(this.state.grid).getBounds();
+    const center = bounds.getCenter();
+
+    this.showScreen('game-screen');
+    this.updateScoreDisplay();
+    this._updateBoardNameDisplay();
+
+    GameMap.init(center.lat, center.lng);
+    GameMap.loadGrid(this.state.grid, this.state.visitedCells);
+
+    GPS.start(
+      (lat, lon, accuracy) => this.onPositionUpdate(lat, lon, accuracy),
+      (errMsg) => { this.els.cellStatus.textContent = errMsg; }
+    );
+  },
+
+  /** Update the board name display in HUD. */
+  _updateBoardNameDisplay() {
+    this.els.boardNameDisplay.textContent = this.state.boardName || '';
+  },
+
   /** Confirm picker selection and create the game. */
   async onConfirmStart() {
     this.els.pickerStartBtn.disabled = true;
@@ -254,25 +330,7 @@ const App = {
 
     try {
       const result = await API.createGame(formData);
-
-      this.state.gameId = result.game_id;
-      this.state.nickname = formData.nickname;
-      this.state.grid = result.grid;
-      this.state.totalCells = result.total_cells;
-      this.state.minDwellS = result.min_dwell_s;
-      this.state.visitedCells = {};
-      this.state.currentCellId = null;
-
-      this.showScreen('game-screen');
-      this.updateScoreDisplay();
-
-      GameMap.init(center.lat, center.lon);
-      GameMap.loadGrid(this.state.grid, this.state.visitedCells);
-
-      GPS.start(
-        (lat, lon, accuracy) => this.onPositionUpdate(lat, lon, accuracy),
-        (errMsg) => { this.els.cellStatus.textContent = errMsg; }
-      );
+      this._startGame(result);
     } catch (err) {
       this.els.pickerStatus.textContent = `Error: ${err.message}`;
       this.els.pickerStartBtn.disabled = false;
@@ -406,6 +464,7 @@ const App = {
       dwellTimer: null,
       minDwellS: 10,
       totalCells: 0,
+      boardName: null,
     };
 
     this.els.chooseLocationBtn.disabled = false;

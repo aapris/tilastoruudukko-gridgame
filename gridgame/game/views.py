@@ -9,8 +9,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from game.grid_providers import get_grid_provider
-from game.models import Game, Visit
-from game.serializers import CreateGameSerializer, GameListSerializer, GameStateSerializer, RecordVisitSerializer
+from game.models import Board, Game, Visit
+from game.serializers import (
+    BoardSerializer,
+    CreateGameSerializer,
+    GameListSerializer,
+    GameStateSerializer,
+    RecordVisitSerializer,
+)
 
 
 class ListGamesView(APIView):
@@ -41,11 +47,30 @@ class ListGamesView(APIView):
         return Response(serializer.data)
 
 
+class BoardListView(APIView):
+    """List active game boards."""
+
+    def get(self, request: Request) -> Response:
+        """Handle GET request to list active boards.
+
+        Args:
+            request: DRF request.
+
+        Returns:
+            Response with list of active boards.
+        """
+        boards = Board.objects.filter(is_active=True).select_related("area")
+        serializer = BoardSerializer(boards, many=True)
+        return Response(serializer.data)
+
+
 class CreateGameView(APIView):
     """Create a new game session."""
 
     def post(self, request: Request) -> Response:
         """Handle POST request to create a game.
+
+        Supports two modes: board-based (board_id) or radius-based (center + radius).
 
         Args:
             request: DRF request with game creation data.
@@ -57,40 +82,72 @@ class CreateGameView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        provider = get_grid_provider(data["grid_type"])
-        grid_geojson, total_cells = provider.get_cells_in_radius(
-            center_lat=data["center_lat"],
-            center_lon=data["center_lon"],
-            radius_m=data["radius_m"],
-        )
-
         player_token = request.headers.get("X-Player-Token")
         if not player_token:
             return Response({"error": "X-Player-Token header is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        game = Game.objects.create(
-            player_token=player_token,
-            nickname=data["nickname"],
-            center=Point(data["center_lon"], data["center_lat"], srid=4326),
-            radius_m=data["radius_m"],
-            grid_type=data["grid_type"],
-            min_dwell_s=data["min_dwell_s"],
-            time_limit_s=data["time_limit_s"],
-            total_cells=total_cells,
-        )
+        board_id = data.get("board_id")
 
-        return Response(
-            {
-                "game_id": str(game.id),
-                "nickname": game.nickname,
-                "total_cells": game.total_cells,
-                "min_dwell_s": game.min_dwell_s,
-                "time_limit_s": game.time_limit_s,
-                "started_at": game.started_at.isoformat(),
-                "grid": grid_geojson,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+        if board_id:
+            # Board-based game
+            board = get_object_or_404(Board, pk=board_id, is_active=True)
+            grid_type = board.grid_type
+            provider = get_grid_provider(grid_type)
+            play_area = board.area.geometry
+            grid_geojson, total_cells = provider.get_cells_in_polygon(play_area)
+
+            game = Game.objects.create(
+                player_token=player_token,
+                nickname=data["nickname"],
+                grid_type=grid_type,
+                board=board,
+                play_area=play_area,
+                min_dwell_s=data["min_dwell_s"],
+                time_limit_s=data["time_limit_s"],
+                total_cells=total_cells,
+            )
+        else:
+            # Radius-based game
+            provider = get_grid_provider(data["grid_type"])
+            grid_geojson, total_cells = provider.get_cells_in_radius(
+                center_lat=data["center_lat"],
+                center_lon=data["center_lon"],
+                radius_m=data["radius_m"],
+            )
+
+            center = Point(data["center_lon"], data["center_lat"], srid=4326)
+            # Compute play_area as buffer circle polygon
+            center_3067 = center.transform(3067, clone=True)
+            buffer_3067 = center_3067.buffer(data["radius_m"])
+            buffer_3067.srid = 3067
+            play_area = buffer_3067.transform(4326, clone=True)
+
+            game = Game.objects.create(
+                player_token=player_token,
+                nickname=data["nickname"],
+                center=center,
+                radius_m=data["radius_m"],
+                grid_type=data["grid_type"],
+                play_area=play_area,
+                min_dwell_s=data["min_dwell_s"],
+                time_limit_s=data["time_limit_s"],
+                total_cells=total_cells,
+            )
+
+        response_data = {
+            "game_id": str(game.id),
+            "nickname": game.nickname,
+            "total_cells": game.total_cells,
+            "min_dwell_s": game.min_dwell_s,
+            "time_limit_s": game.time_limit_s,
+            "started_at": game.started_at.isoformat(),
+            "grid": grid_geojson,
+        }
+
+        if game.board:
+            response_data["board_name"] = game.board.name
+
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 class GameStateView(APIView):
@@ -115,13 +172,19 @@ class GameStateView(APIView):
 
         if request.query_params.get("include_grid") == "true":
             provider = get_grid_provider(game.grid_type)
-            grid_geojson, _total = provider.get_cells_in_radius(
-                center_lat=game.center.y,
-                center_lon=game.center.x,
-                radius_m=game.radius_m,
-            )
+            if game.play_area:
+                grid_geojson, _total = provider.get_cells_in_polygon(game.play_area)
+            else:
+                grid_geojson, _total = provider.get_cells_in_radius(
+                    center_lat=game.center.y,
+                    center_lon=game.center.x,
+                    radius_m=game.radius_m,
+                )
             data["grid"] = grid_geojson
             data["min_dwell_s"] = game.min_dwell_s
+
+        if game.board:
+            data["board_name"] = game.board.name
 
         return Response(data)
 
@@ -156,7 +219,11 @@ class RecordVisitView(APIView):
             )
 
         provider = get_grid_provider(game.grid_type)
-        if not provider.validate_cell(game.center.x, game.center.y, game.radius_m, data["cell_id"]):
+        if game.play_area:
+            cell_valid = provider.validate_cell_in_polygon(game.play_area, data["cell_id"])
+        else:
+            cell_valid = provider.validate_cell(game.center.x, game.center.y, game.radius_m, data["cell_id"])
+        if not cell_valid:
             return Response(
                 {"error": f"Cell {data['cell_id']} is not in the game's play area."},
                 status=status.HTTP_400_BAD_REQUEST,

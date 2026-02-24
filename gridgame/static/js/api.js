@@ -30,6 +30,18 @@ const API = {
   },
 
   /**
+   * List active game boards.
+   * @returns {Promise<Array>} List of board objects.
+   */
+  async listBoards() {
+    const resp = await fetch(`${this.baseUrl}/boards/`, {
+      headers: this._headers(),
+    });
+    if (!resp.ok) throw new Error('Failed to list boards');
+    return resp.json();
+  },
+
+  /**
    * List games for the current player.
    * @param {string} [statusFilter] - "active" or "finished", or omit for all.
    * @returns {Promise<Array>} List of game summaries.

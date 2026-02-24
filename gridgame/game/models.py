@@ -7,8 +7,55 @@ from django.contrib.gis.db import models as gis_models
 from django.db import models
 
 
+GRID_TYPE_CHOICES = [
+    ("stat_250m", "Statistical 250m"),
+    ("stat_1km", "Statistical 1km"),
+    ("stat_5km", "Statistical 5km"),
+    ("h3_res10", "H3 ~44m"),
+    ("h3_res9", "H3 ~175m"),
+    ("h3_res8", "H3 ~460m"),
+    ("h3_res7", "H3 ~1.2km"),
+    ("h3_res6", "H3 ~3.2km"),
+]
+
+
 class User(AbstractUser):
     """Custom user model for future extensibility."""
+
+
+class Area(gis_models.Model):
+    """A geographic area imported from GeoJSON (e.g. a neighborhood)."""
+
+    name = models.CharField(max_length=256)
+    description = models.TextField(blank=True, default="")
+    geometry = gis_models.PolygonField(srid=4326)
+    properties = models.JSONField(default=dict, blank=True)
+    imported_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        """Return the area name."""
+        return self.name
+
+
+class Board(models.Model):
+    """A predefined game board based on a geographic area with a fixed grid type."""
+
+    name = models.CharField(max_length=256)
+    description = models.TextField(blank=True, default="")
+    area = models.ForeignKey(Area, on_delete=models.PROTECT, related_name="boards")
+    grid_type = models.CharField(max_length=16, choices=GRID_TYPE_CHOICES, default="h3_res9")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        """Return the board name."""
+        return self.name
 
 
 class GridCell(gis_models.Model):
@@ -39,23 +86,15 @@ class GridCell(gis_models.Model):
 class Game(models.Model):
     """A single game session where a player visits grid cells."""
 
-    GRID_TYPE_CHOICES = [
-        ("stat_250m", "Statistical 250m"),
-        ("stat_1km", "Statistical 1km"),
-        ("stat_5km", "Statistical 5km"),
-        ("h3_res9", "H3 ~175m"),
-        ("h3_res8", "H3 ~460m"),
-        ("h3_res7", "H3 ~1.2km"),
-        ("h3_res6", "H3 ~3.2km"),
-    ]
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     player_token = models.UUIDField(db_index=True, default=uuid.uuid4)
     nickname = models.CharField(max_length=64)
 
-    center = gis_models.PointField(srid=4326)
-    radius_m = models.IntegerField()
+    center = gis_models.PointField(srid=4326, null=True, blank=True)
+    radius_m = models.IntegerField(null=True, blank=True)
     grid_type = models.CharField(max_length=16, choices=GRID_TYPE_CHOICES)
+    board = models.ForeignKey(Board, on_delete=models.SET_NULL, null=True, blank=True, related_name="games")
+    play_area = gis_models.PolygonField(srid=4326, null=True, blank=True)
 
     min_dwell_s = models.IntegerField(default=10)
     time_limit_s = models.IntegerField(null=True, blank=True)

@@ -6,6 +6,7 @@ from game import views
 
 
 urlpatterns = [
+    path("boards/", views.BoardListView.as_view(), name="list-boards"),
     path("games/", views.CreateGameView.as_view(), name="create-game"),
     path("games/list/", views.ListGamesView.as_view(), name="list-games"),
     path("games/<uuid:game_id>/", views.GameStateView.as_view(), name="game-state"),

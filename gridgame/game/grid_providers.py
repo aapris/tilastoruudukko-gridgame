@@ -13,7 +13,7 @@ import math
 from typing import Protocol
 
 import h3
-from django.contrib.gis.geos import Point
+from django.contrib.gis.geos import Point, Polygon
 
 from game.models import GridCell
 
@@ -45,6 +45,29 @@ class GridProvider(Protocol):
 
         Returns:
             True if the cell exists within the play area.
+        """
+        ...
+
+    def get_cells_in_polygon(self, polygon_4326: Polygon) -> tuple[dict, int]:
+        """Return grid cells within a polygon as a GeoJSON FeatureCollection.
+
+        Args:
+            polygon_4326: Polygon geometry in EPSG:4326.
+
+        Returns:
+            Tuple of (GeoJSON FeatureCollection dict, cell count).
+        """
+        ...
+
+    def validate_cell_in_polygon(self, polygon_4326: Polygon, cell_id: str) -> bool:
+        """Verify a cell_id belongs to the play area defined by a polygon.
+
+        Args:
+            polygon_4326: Polygon geometry in EPSG:4326.
+            cell_id: The cell identifier to check.
+
+        Returns:
+            True if the cell exists within the polygon.
         """
         ...
 
@@ -119,6 +142,53 @@ class StatisticalGridProvider:
             geometry__intersects=buffer,
         ).exists()
 
+    def get_cells_in_polygon(self, polygon_4326: Polygon) -> tuple[dict, int]:
+        """Return statistical grid cells within a polygon as GeoJSON.
+
+        Args:
+            polygon_4326: Polygon geometry in EPSG:4326.
+
+        Returns:
+            Tuple of (GeoJSON FeatureCollection dict, cell count).
+        """
+        polygon_3067 = polygon_4326.transform(3067, clone=True)
+
+        cells = GridCell.objects.filter(
+            grid_size=self.grid_size,
+            geometry__intersects=polygon_3067,
+        )
+
+        features = []
+        for cell in cells.iterator():
+            geom_4326 = cell.geometry.transform(4326, clone=True)
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": json.loads(geom_4326.json),
+                    "properties": {"cell_id": cell.grid_inspire},
+                }
+            )
+
+        return {"type": "FeatureCollection", "features": features}, len(features)
+
+    def validate_cell_in_polygon(self, polygon_4326: Polygon, cell_id: str) -> bool:
+        """Verify a cell belongs to the play area defined by a polygon.
+
+        Args:
+            polygon_4326: Polygon geometry in EPSG:4326.
+            cell_id: The grid_inspire identifier to check.
+
+        Returns:
+            True if the cell exists within the polygon.
+        """
+        polygon_3067 = polygon_4326.transform(3067, clone=True)
+
+        return GridCell.objects.filter(
+            grid_size=self.grid_size,
+            grid_inspire=cell_id,
+            geometry__intersects=polygon_3067,
+        ).exists()
+
 
 # H3 resolution to approximate edge length in meters
 H3_RESOLUTIONS = {
@@ -126,6 +196,7 @@ H3_RESOLUTIONS = {
     "h3_res7": 7,
     "h3_res8": 8,
     "h3_res9": 9,
+    "h3_res10": 10,
 }
 
 
@@ -230,6 +301,59 @@ class H3GridProvider:
         cell_lat, cell_lon = h3.cell_to_latlng(cell_id)
         dist = _haversine_distance(center_lat, center_lon, cell_lat, cell_lon)
         return dist <= radius_m
+
+    def get_cells_in_polygon(self, polygon_4326: Polygon) -> tuple[dict, int]:
+        """Return H3 hex cells within a polygon as GeoJSON.
+
+        Args:
+            polygon_4326: Polygon geometry in EPSG:4326.
+
+        Returns:
+            Tuple of (GeoJSON FeatureCollection dict, cell count).
+        """
+        # Convert GEOS polygon to h3 LatLngPoly (lat, lng order)
+        exterior = polygon_4326.exterior_ring
+        coords = [(coord[1], coord[0]) for coord in exterior.coords[:-1]]
+        h3_poly = h3.LatLngPoly(coords)
+
+        cell_ids = h3.h3shape_to_cells(h3_poly, self.resolution)
+
+        features = []
+        for cell in cell_ids:
+            boundary = h3.cell_to_boundary(cell)
+            coords_geojson = [[lng, lat] for lat, lng in boundary]
+            coords_geojson.append(coords_geojson[0])
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": [coords_geojson]},
+                    "properties": {"cell_id": cell},
+                }
+            )
+
+        return {"type": "FeatureCollection", "features": features}, len(features)
+
+    def validate_cell_in_polygon(self, polygon_4326: Polygon, cell_id: str) -> bool:
+        """Verify an H3 cell belongs to the play area defined by a polygon.
+
+        Args:
+            polygon_4326: Polygon geometry in EPSG:4326.
+            cell_id: The H3 cell index to check.
+
+        Returns:
+            True if the cell is valid and within the polygon.
+        """
+        if not h3.is_valid_cell(cell_id):
+            return False
+        if h3.get_resolution(cell_id) != self.resolution:
+            return False
+
+        exterior = polygon_4326.exterior_ring
+        coords = [(coord[1], coord[0]) for coord in exterior.coords[:-1]]
+        h3_poly = h3.LatLngPoly(coords)
+
+        cell_ids = h3.h3shape_to_cells(h3_poly, self.resolution)
+        return cell_id in cell_ids
 
 
 # Grid type to provider class prefix mapping

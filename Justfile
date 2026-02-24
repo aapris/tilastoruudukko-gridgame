@@ -22,6 +22,10 @@ load-grid-all:
 load-grid-5km:
     uv run python gridgame/manage.py load_grid_data --grid-size 5km --file data/raw/hila5km_linkki.csv --clear
 
+# Import areas from a GeoJSON file (e.g. just import-areas data/raw/areas.geojson nimi_fi)
+import-areas file name_property:
+    uv run python gridgame/manage.py import_areas --file {{ file }} --name-property {{ name_property }}
+
 # Lint and format check
 lint:
     uv run ruff check gridgame/
@@ -74,6 +78,10 @@ docker-load-grid-all:
 # Load 5km grid data in Docker
 docker-load-grid-5km:
     docker compose exec web uv run python gridgame/manage.py load_grid_data --grid-size 5km --file data/raw/hila5km_linkki.csv --clear
+
+# Import areas from a GeoJSON file in Docker
+docker-import-areas file name_property:
+    docker compose exec web uv run python gridgame/manage.py import_areas --file {{ file }} --name-property {{ name_property }}
 
 # Django shell in Docker
 docker-shell:
