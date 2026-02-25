@@ -283,3 +283,31 @@ class FinishGameView(APIView):
 
         serializer = GameStateSerializer(game)
         return Response(serializer.data)
+
+
+class DeleteGameView(APIView):
+    """Delete a game and all its visits."""
+
+    def delete(self, request: Request, game_id: str) -> Response:
+        """Handle DELETE request to remove a game.
+
+        Verifies player token ownership before deletion.
+
+        Args:
+            request: DRF request with X-Player-Token header.
+            game_id: UUID of the game.
+
+        Returns:
+            Response with 204 No Content on success.
+        """
+        player_token = request.headers.get("X-Player-Token")
+        if not player_token:
+            return Response({"error": "X-Player-Token header is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        game = get_object_or_404(Game, pk=game_id)
+
+        if str(game.player_token) != player_token:
+            return Response({"error": "Not your game."}, status=status.HTTP_403_FORBIDDEN)
+
+        game.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -10,6 +10,7 @@ const App = {
     currentCellId: null,
     cellEnteredAt: null,
     dwellTimer: null,
+    countdownInterval: null,
     minDwellS: 10,
     totalCells: 0,
     boardName: null,
@@ -49,7 +50,12 @@ const App = {
       totalCount: document.getElementById('total-count'),
       scorePct: document.getElementById('score-pct'),
       cellStatus: document.getElementById('cell-status'),
-      finishBtn: document.getElementById('finish-btn'),
+      pauseBtn: document.getElementById('pause-btn'),
+      pauseModal: document.getElementById('pause-modal'),
+      pauseScore: document.getElementById('pause-score'),
+      pauseResumeBtn: document.getElementById('pause-resume-btn'),
+      pauseLobbyBtn: document.getElementById('pause-lobby-btn'),
+      pauseFinishBtn: document.getElementById('pause-finish-btn'),
       resultNickname: document.getElementById('result-nickname'),
       resultVisited: document.getElementById('result-visited'),
       resultTotal: document.getElementById('result-total'),
@@ -64,7 +70,10 @@ const App = {
     this.els.setupForm.addEventListener('submit', (e) => this.onChooseLocation(e));
     this.els.pickerBackBtn.addEventListener('click', () => this.onPickerBack());
     this.els.pickerStartBtn.addEventListener('click', () => this.onConfirmStart());
-    this.els.finishBtn.addEventListener('click', () => this.onFinishGame());
+    this.els.pauseBtn.addEventListener('click', () => this.onPauseGame());
+    this.els.pauseResumeBtn.addEventListener('click', () => this.onResumeFromPause());
+    this.els.pauseLobbyBtn.addEventListener('click', () => this.onBackToLobby());
+    this.els.pauseFinishBtn.addEventListener('click', () => this.onFinishGame());
     this.els.newGameBtn.addEventListener('click', () => this.onNewGame());
 
     await this.loadLobby();
@@ -132,6 +141,13 @@ const App = {
         btn.textContent = 'Resume';
         btn.addEventListener('click', () => this.onResumeGame(game.game_id));
         card.appendChild(btn);
+      } else {
+        const delBtn = document.createElement('button');
+        delBtn.className = 'game-card-btn game-card-btn-delete';
+        delBtn.textContent = '\u2716';
+        delBtn.title = 'Delete game';
+        delBtn.addEventListener('click', () => this.onDeleteGame(game.game_id, game.nickname));
+        card.appendChild(delBtn);
       }
 
       container.appendChild(card);
@@ -353,10 +369,14 @@ const App = {
 
     if (newCellId === this.state.currentCellId) return;
 
-    // Left previous cell — cancel pending dwell timer
+    // Left previous cell — cancel pending dwell timer and countdown
     if (this.state.dwellTimer) {
       clearTimeout(this.state.dwellTimer);
       this.state.dwellTimer = null;
+    }
+    if (this.state.countdownInterval) {
+      clearInterval(this.state.countdownInterval);
+      this.state.countdownInterval = null;
     }
 
     this.state.currentCellId = newCellId;
@@ -368,7 +388,17 @@ const App = {
       if (this.state.visitedCells[newCellId]) {
         this.els.cellStatus.textContent = `In cell ${newCellId} (already visited)`;
       } else {
-        this.els.cellStatus.textContent = `In cell — waiting ${this.state.minDwellS}s...`;
+        let remaining = this.state.minDwellS;
+        this.els.cellStatus.textContent = `In cell — ${remaining}s...`;
+        this.state.countdownInterval = setInterval(() => {
+          remaining--;
+          if (remaining > 0) {
+            this.els.cellStatus.textContent = `In cell — ${remaining}s...`;
+          } else {
+            clearInterval(this.state.countdownInterval);
+            this.state.countdownInterval = null;
+          }
+        }, 1000);
       }
 
       const enteredAt = new Date();
@@ -426,14 +456,51 @@ const App = {
     this.els.scorePct.textContent = p;
   },
 
-  /** Handle the finish game button. */
+  /** Pause the game — stop GPS and show pause modal. */
+  onPauseGame() {
+    GPS.stop();
+    if (this.state.dwellTimer) {
+      clearTimeout(this.state.dwellTimer);
+      this.state.dwellTimer = null;
+    }
+    if (this.state.countdownInterval) {
+      clearInterval(this.state.countdownInterval);
+      this.state.countdownInterval = null;
+    }
+    this.state.currentCellId = null;
+
+    const visited = Object.keys(this.state.visitedCells).length;
+    const pct = this.state.totalCells ? (visited / this.state.totalCells * 100).toFixed(1) : '0.0';
+    this.els.pauseScore.textContent = `${visited} / ${this.state.totalCells} (${pct}%)`;
+    this.els.pauseModal.style.display = '';
+    this.els.pauseFinishBtn.disabled = false;
+  },
+
+  /** Resume from pause — restart GPS and hide modal. */
+  onResumeFromPause() {
+    this.els.pauseModal.style.display = 'none';
+    this.els.cellStatus.textContent = '';
+    GPS.start(
+      (lat, lon, accuracy) => this.onPositionUpdate(lat, lon, accuracy),
+      (errMsg) => { this.els.cellStatus.textContent = errMsg; }
+    );
+  },
+
+  /** Go back to lobby without finishing — game stays active. */
+  onBackToLobby() {
+    this.els.pauseModal.style.display = 'none';
+    this.onNewGame();
+  },
+
+  /** Finish the game permanently. */
   async onFinishGame() {
-    this.els.finishBtn.disabled = true;
+    this.els.pauseFinishBtn.disabled = true;
 
     try {
       const result = await API.finishGame(this.state.gameId);
 
       GPS.stop();
+      this.els.pauseModal.style.display = 'none';
 
       this.els.resultNickname.textContent = result.nickname;
       this.els.resultVisited.textContent = result.visited_count;
@@ -443,8 +510,8 @@ const App = {
 
       this.showScreen('result-screen');
     } catch (err) {
+      this.els.pauseModal.style.display = 'none';
       this.els.cellStatus.textContent = `Error: ${err.message}`;
-      this.els.finishBtn.disabled = false;
     }
   },
 
@@ -453,6 +520,7 @@ const App = {
     GPS.stop();
     GameMap.destroy();
     if (this.state.dwellTimer) clearTimeout(this.state.dwellTimer);
+    if (this.state.countdownInterval) clearInterval(this.state.countdownInterval);
 
     this.state = {
       gameId: null,
@@ -462,6 +530,7 @@ const App = {
       currentCellId: null,
       cellEnteredAt: null,
       dwellTimer: null,
+      countdownInterval: null,
       minDwellS: 10,
       totalCells: 0,
       boardName: null,
@@ -469,9 +538,24 @@ const App = {
 
     this.els.chooseLocationBtn.disabled = false;
     this.els.pickerStartBtn.disabled = false;
-    this.els.finishBtn.disabled = false;
     this.els.setupStatus.textContent = '';
     this.loadLobby();
+  },
+
+  /**
+   * Delete a finished game after confirmation.
+   * @param {string} gameId - UUID of the game.
+   * @param {string} nickname - Player nickname for confirmation message.
+   */
+  async onDeleteGame(gameId, nickname) {
+    if (!confirm(`Delete game by ${nickname}? This cannot be undone.`)) return;
+
+    try {
+      await API.deleteGame(gameId);
+      await this.loadLobby();
+    } catch (err) {
+      this.els.lobbyStatus.textContent = `Error: ${err.message}`;
+    }
   },
 
   /**

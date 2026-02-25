@@ -131,4 +131,17 @@ const API = {
     if (!resp.ok) throw new Error('Failed to finish game');
     return resp.json();
   },
+
+  /**
+   * Delete a game.
+   * @param {string} gameId - UUID of the game.
+   * @returns {Promise<void>}
+   */
+  async deleteGame(gameId) {
+    const resp = await fetch(`${this.baseUrl}/games/${gameId}/delete/`, {
+      method: 'DELETE',
+      headers: this._headers(),
+    });
+    if (!resp.ok) throw new Error('Failed to delete game');
+  },
 };

@@ -203,15 +203,82 @@ button:disabled {
   text-align: center;
 }
 
-#finish-btn {
+#pause-btn {
   width: auto;
   margin: 0;
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
+  background: #666;
+}
+
+#pause-btn:active {
+  background: #444;
+}
+
+/* Pause modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-content {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 2rem;
+  width: 85%;
+  max-width: 320px;
+  text-align: center;
+}
+
+.modal-content h2 {
+  font-size: 1.5rem;
+  color: #eee;
+  margin-bottom: 0.5rem;
+}
+
+.modal-content p {
+  color: #aaa;
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+}
+
+.modal-btn {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  font-size: 1rem;
+}
+
+.modal-btn-primary {
+  background: #4CAF50;
+}
+
+.modal-btn-primary:active {
+  background: #388E3C;
+}
+
+.modal-btn-secondary {
+  background: #666;
+}
+
+.modal-btn-secondary:active {
+  background: #444;
+}
+
+.modal-btn-danger {
   background: #f44336;
 }
 
-#finish-btn:active {
+.modal-btn-danger:active {
   background: #c62828;
 }
 
@@ -322,6 +389,18 @@ button:disabled {
   font-size: 0.85rem;
   flex-shrink: 0;
   margin-left: 0.75rem;
+}
+
+.game-card-btn-delete {
+  background: transparent;
+  color: #888;
+  font-size: 1rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.game-card-btn-delete:active {
+  color: #f44336;
+  background: transparent;
 }
 
 #lobby-new-game-btn {

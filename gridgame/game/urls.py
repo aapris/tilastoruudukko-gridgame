@@ -12,4 +12,5 @@ urlpatterns = [
     path("games/<uuid:game_id>/", views.GameStateView.as_view(), name="game-state"),
     path("games/<uuid:game_id>/visits/", views.RecordVisitView.as_view(), name="record-visit"),
     path("games/<uuid:game_id>/finish/", views.FinishGameView.as_view(), name="finish-game"),
+    path("games/<uuid:game_id>/delete/", views.DeleteGameView.as_view(), name="delete-game"),
 ]
