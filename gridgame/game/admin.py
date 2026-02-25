@@ -2,6 +2,7 @@
 
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.contrib.gis.admin import GISModelAdmin
 
 from game.models import Area, Board, Game, User, Visit
 
@@ -12,8 +13,8 @@ class UserAdmin(BaseUserAdmin):
 
 
 @admin.register(Area)
-class AreaAdmin(admin.ModelAdmin):
-    """Admin for geographic areas."""
+class AreaAdmin(GISModelAdmin):
+    """Admin for geographic areas with OSM map widget."""
 
     list_display = ["name", "imported_at"]
     search_fields = ["name"]
@@ -30,8 +31,8 @@ class BoardAdmin(admin.ModelAdmin):
 
 
 @admin.register(Game)
-class GameAdmin(admin.ModelAdmin):
-    """Admin for game sessions."""
+class GameAdmin(GISModelAdmin):
+    """Admin for game sessions with OSM map widget."""
 
     list_display = ["id", "nickname", "grid_type", "board", "total_cells", "started_at", "finished_at"]
     list_filter = ["grid_type", "finished_at"]
@@ -39,8 +40,8 @@ class GameAdmin(admin.ModelAdmin):
 
 
 @admin.register(Visit)
-class VisitAdmin(admin.ModelAdmin):
-    """Admin for cell visits."""
+class VisitAdmin(GISModelAdmin):
+    """Admin for cell visits with OSM map widget."""
 
     list_display = ["game", "cell_id", "dwell_s", "visit_count"]
     list_filter = ["game"]

@@ -259,8 +259,10 @@ const App = {
 
     // Wire up click feedback
     GameMap.pickerMap.on('click', (e) => {
-      const playerLatLng = GameMap.pickerPositionMarker.getLatLng();
-      const distance = playerLatLng.distanceTo(e.latlng);
+      const playerPos = GameMap.getPickerPlayerPos();
+      const from = turf.point([playerPos.lon, playerPos.lat]);
+      const to = turf.point([e.lngLat.lng, e.lngLat.lat]);
+      const distance = turf.distance(from, to, { units: 'meters' });
       if (distance > radiusM) {
         this.els.pickerStatus.textContent = 'Too far — you must be inside the play area';
       } else {
@@ -303,14 +305,13 @@ const App = {
     }
 
     // Use center of grid bounding box for map init
-    const bounds = L.geoJSON(this.state.grid).getBounds();
-    const center = bounds.getCenter();
+    const center = GameMap.getGeoJSONCenter(this.state.grid);
 
     this.showScreen('game-screen');
     this.updateScoreDisplay();
     this._updateBoardNameDisplay();
 
-    GameMap.init(center.lat, center.lng);
+    GameMap.init(center.lat, center.lon);
     GameMap.loadGrid(this.state.grid, this.state.visitedCells);
 
     GPS.start(

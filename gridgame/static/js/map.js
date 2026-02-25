@@ -1,17 +1,24 @@
 /**
- * Leaflet map setup and layer management.
+ * MapLibre GL JS map setup and layer management.
+ * Uses OpenFreeMap vector tiles.
  */
 const GameMap = {
   map: null,
-  gridLayer: null,
-  positionMarker: null,
+  _mapReady: null, // Promise resolved when map style is loaded
+  _gridSourceId: 'grid-cells',
+  _visitedCellIds: new Set(),
+  _currentCellId: null,
 
   // Picker state
   pickerMap: null,
-  pickerPositionMarker: null,
-  pickerCircle: null,
+  _pickerReady: null,
+  _pickerMarker: null,
+  _pickerPlayerPos: null,
   pickerCenter: null,
   pickerRadiusM: null,
+
+  // Game player marker
+  _playerMarker: null,
 
   /**
    * Initialize the picker map with a radius circle.
@@ -20,63 +27,105 @@ const GameMap = {
    * @param {number} radiusM - Play area radius in meters.
    */
   initPicker(lat, lon, radiusM) {
-    L.Icon.Default.imagePath = '/static/vendor/leaflet/';
-
     this.pickerRadiusM = radiusM;
-    this.pickerCenter = L.latLng(lat, lon);
+    this.pickerCenter = { lat, lon };
+    this._pickerPlayerPos = { lat, lon };
 
-    this.pickerMap = L.map('picker-map', {
-      zoomControl: false,
-    }).setView([lat, lon], 14);
+    this.pickerMap = new maplibregl.Map({
+      container: 'picker-map',
+      style: 'https://tiles.openfreemap.org/styles/liberty',
+      center: [lon, lat],
+      zoom: 14,
+    });
 
-    L.control.zoom({ position: 'topright' }).addTo(this.pickerMap);
+    this._pickerReady = new Promise((resolve) => {
+      this.pickerMap.on('load', () => resolve());
+    });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19,
-    }).addTo(this.pickerMap);
+    // Player position marker (blue dot)
+    const playerEl = this._createDotMarker('#2196F3');
+    this._pickerMarker = new maplibregl.Marker({ element: playerEl })
+      .setLngLat([lon, lat])
+      .addTo(this.pickerMap);
 
-    // Player position marker
-    this.pickerPositionMarker = L.circleMarker([lat, lon], {
-      radius: 8,
-      fillColor: '#2196F3',
-      fillOpacity: 1,
-      color: '#fff',
-      weight: 2,
-    }).addTo(this.pickerMap);
+    this._pickerReady.then(() => {
+      // Play area circle
+      this._addPickerCircle(lat, lon, radiusM);
 
-    // Play area circle
-    this.pickerCircle = L.circle([lat, lon], {
-      radius: radiusM,
-      fillColor: '#4CAF50',
-      fillOpacity: 0.1,
-      color: '#4CAF50',
-      weight: 2,
-    }).addTo(this.pickerMap);
+      // Fit to circle bounds
+      const bbox = turf.bbox(turf.circle([lon, lat], radiusM / 1000, { units: 'kilometers' }));
+      this.pickerMap.fitBounds(bbox, { padding: 20 });
+    });
 
-    this.pickerMap.fitBounds(this.pickerCircle.getBounds(), { padding: [20, 20] });
-
-    // Click handler to move circle center
+    // Click handler
     this.pickerMap.on('click', (e) => this._onPickerClick(e));
   },
 
   /**
+   * Add or update the play area circle on picker map.
+   * @param {number} lat - Circle center latitude.
+   * @param {number} lon - Circle center longitude.
+   * @param {number} radiusM - Radius in meters.
+   */
+  _addPickerCircle(lat, lon, radiusM) {
+    const circle = turf.circle([lon, lat], radiusM / 1000, {
+      steps: 64,
+      units: 'kilometers',
+    });
+
+    if (this.pickerMap.getSource('picker-circle')) {
+      this.pickerMap.getSource('picker-circle').setData(circle);
+    } else {
+      this.pickerMap.addSource('picker-circle', {
+        type: 'geojson',
+        data: circle,
+      });
+      this.pickerMap.addLayer({
+        id: 'picker-circle-fill',
+        type: 'fill',
+        source: 'picker-circle',
+        paint: {
+          'fill-color': '#4CAF50',
+          'fill-opacity': 0.1,
+        },
+      });
+      this.pickerMap.addLayer({
+        id: 'picker-circle-line',
+        type: 'line',
+        source: 'picker-circle',
+        paint: {
+          'line-color': '#4CAF50',
+          'line-width': 2,
+        },
+      });
+    }
+  },
+
+  /**
    * Handle map click in picker mode.
-   * @param {Object} e - Leaflet click event.
+   * @param {Object} e - MapLibre click event.
    * @returns {boolean} Whether the click was accepted.
    */
   _onPickerClick(e) {
-    const clickedLatLng = e.latlng;
-    const playerLatLng = this.pickerPositionMarker.getLatLng();
-    const distance = playerLatLng.distanceTo(clickedLatLng);
+    const clickedLngLat = e.lngLat;
+    const playerPos = this._pickerPlayerPos;
+
+    const from = turf.point([playerPos.lon, playerPos.lat]);
+    const to = turf.point([clickedLngLat.lng, clickedLngLat.lat]);
+    const distance = turf.distance(from, to, { units: 'meters' });
 
     if (distance > this.pickerRadiusM) {
       return false;
     }
 
-    this.pickerCenter = clickedLatLng;
-    this.pickerCircle.setLatLng(clickedLatLng);
-    this.pickerMap.fitBounds(this.pickerCircle.getBounds(), { padding: [20, 20] });
+    this.pickerCenter = { lat: clickedLngLat.lat, lon: clickedLngLat.lng };
+    this._addPickerCircle(clickedLngLat.lat, clickedLngLat.lng, this.pickerRadiusM);
+
+    const bbox = turf.bbox(
+      turf.circle([clickedLngLat.lng, clickedLngLat.lat], this.pickerRadiusM / 1000, { units: 'kilometers' })
+    );
+    this.pickerMap.fitBounds(bbox, { padding: 20 });
+
     return true;
   },
 
@@ -86,9 +135,18 @@ const GameMap = {
    * @param {number} lon - Current longitude.
    */
   updatePickerPosition(lat, lon) {
-    if (this.pickerPositionMarker) {
-      this.pickerPositionMarker.setLatLng([lat, lon]);
+    this._pickerPlayerPos = { lat, lon };
+    if (this._pickerMarker) {
+      this._pickerMarker.setLngLat([lon, lat]);
     }
+  },
+
+  /**
+   * Get the player position on the picker map (for distance checks in app.js).
+   * @returns {{lat: number, lon: number}} Player position.
+   */
+  getPickerPlayerPos() {
+    return this._pickerPlayerPos;
   },
 
   /**
@@ -96,7 +154,7 @@ const GameMap = {
    * @returns {{lat: number, lon: number}} Center coordinates.
    */
   getPickerCenter() {
-    return { lat: this.pickerCenter.lat, lon: this.pickerCenter.lng };
+    return this.pickerCenter;
   },
 
   /**
@@ -104,12 +162,12 @@ const GameMap = {
    */
   destroyPicker() {
     if (this.pickerMap) {
-      this.pickerMap.off();
       this.pickerMap.remove();
       this.pickerMap = null;
     }
-    this.pickerPositionMarker = null;
-    this.pickerCircle = null;
+    this._pickerReady = null;
+    this._pickerMarker = null;
+    this._pickerPlayerPos = null;
     this.pickerCenter = null;
     this.pickerRadiusM = null;
   },
@@ -119,36 +177,36 @@ const GameMap = {
    */
   destroy() {
     if (this.map) {
-      this.map.off();
       this.map.remove();
       this.map = null;
     }
-    this.gridLayer = null;
-    this.positionMarker = null;
+    this._mapReady = null;
+    this._playerMarker = null;
+    this._visitedCellIds = new Set();
+    this._currentCellId = null;
   },
 
   /**
-   * Initialize the Leaflet map.
+   * Initialize the MapLibre game map.
    * @param {number} lat - Initial center latitude.
    * @param {number} lon - Initial center longitude.
    */
   init(lat, lon) {
-    // Clean up any existing map instance
     this.destroy();
 
-    // Fix Leaflet icon paths for static serving
-    L.Icon.Default.imagePath = '/static/vendor/leaflet/';
+    this.map = new maplibregl.Map({
+      container: 'map',
+      style: 'https://tiles.openfreemap.org/styles/liberty',
+      center: [lon, lat],
+      zoom: 14,
+    });
 
-    this.map = L.map('map', {
-      zoomControl: false,
-    }).setView([lat, lon], 14);
+    // Move zoom control to top-right
+    this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
-    L.control.zoom({ position: 'topright' }).addTo(this.map);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19,
-    }).addTo(this.map);
+    this._mapReady = new Promise((resolve) => {
+      this.map.on('load', () => resolve());
+    });
   },
 
   /**
@@ -157,24 +215,92 @@ const GameMap = {
    * @param {Object} visitedCells - Map of cell_id -> visit info.
    */
   loadGrid(geojson, visitedCells) {
-    if (this.gridLayer) {
-      this.map.removeLayer(this.gridLayer);
-    }
+    this._visitedCellIds = new Set(Object.keys(visitedCells));
+    this._currentCellId = null;
 
-    this.gridLayer = L.geoJSON(geojson, {
-      style: (feature) => {
-        const visited = visitedCells[feature.properties.cell_id];
-        return {
-          fillColor: visited ? '#4CAF50' : 'transparent',
-          fillOpacity: visited ? 0.5 : 0,
-          color: '#2196F3',
-          weight: 3,
-          opacity: 0.6,
-        };
-      },
-    }).addTo(this.map);
+    // Assign unique numeric IDs for feature-state
+    geojson.features.forEach((f, i) => {
+      f.id = i;
+      f.properties._idx = i;
+    });
 
-    this.map.fitBounds(this.gridLayer.getBounds(), { padding: [20, 20] });
+    // Build a lookup from cell_id to feature index
+    this._cellIdToIdx = {};
+    geojson.features.forEach((f, i) => {
+      this._cellIdToIdx[f.properties.cell_id] = i;
+    });
+
+    this._mapReady.then(() => {
+      // Remove old layers/source if they exist
+      if (this.map.getLayer('grid-fill')) this.map.removeLayer('grid-fill');
+      if (this.map.getLayer('grid-line')) this.map.removeLayer('grid-line');
+      if (this.map.getLayer('grid-highlight')) this.map.removeLayer('grid-highlight');
+      if (this.map.getSource(this._gridSourceId)) this.map.removeSource(this._gridSourceId);
+
+      this.map.addSource(this._gridSourceId, {
+        type: 'geojson',
+        data: geojson,
+        promoteId: '_idx',
+      });
+
+      // Fill layer for visited cells
+      this.map.addLayer({
+        id: 'grid-fill',
+        type: 'fill',
+        source: this._gridSourceId,
+        paint: {
+          'fill-color': '#4CAF50',
+          'fill-opacity': [
+            'case',
+            ['boolean', ['feature-state', 'visited'], false],
+            0.5,
+            0,
+          ],
+        },
+      });
+
+      // Border lines for all cells
+      this.map.addLayer({
+        id: 'grid-line',
+        type: 'line',
+        source: this._gridSourceId,
+        paint: {
+          'line-color': [
+            'case',
+            ['boolean', ['feature-state', 'current'], false],
+            '#FF9800',
+            '#2196F3',
+          ],
+          'line-width': [
+            'case',
+            ['boolean', ['feature-state', 'current'], false],
+            3,
+            1.5,
+          ],
+          'line-opacity': [
+            'case',
+            ['boolean', ['feature-state', 'current'], false],
+            1,
+            0.6,
+          ],
+        },
+      });
+
+      // Set initial visited states
+      for (const cellId of this._visitedCellIds) {
+        const idx = this._cellIdToIdx[cellId];
+        if (idx !== undefined) {
+          this.map.setFeatureState(
+            { source: this._gridSourceId, id: idx },
+            { visited: true }
+          );
+        }
+      }
+
+      // Fit to grid bounds
+      const bbox = turf.bbox(geojson);
+      this.map.fitBounds(bbox, { padding: 20 });
+    });
   },
 
   /**
@@ -182,12 +308,15 @@ const GameMap = {
    * @param {string} cellId - The cell_id to highlight.
    */
   markCellVisited(cellId) {
-    if (!this.gridLayer) return;
-    this.gridLayer.eachLayer((layer) => {
-      if (layer.feature.properties.cell_id === cellId) {
-        layer.setStyle({ fillColor: '#4CAF50', fillOpacity: 0.5 });
-      }
-    });
+    this._visitedCellIds.add(cellId);
+    if (!this.map || !this._cellIdToIdx) return;
+    const idx = this._cellIdToIdx[cellId];
+    if (idx !== undefined) {
+      this.map.setFeatureState(
+        { source: this._gridSourceId, id: idx },
+        { visited: true }
+      );
+    }
   },
 
   /**
@@ -196,16 +325,13 @@ const GameMap = {
    * @param {number} lon - Current longitude.
    */
   updatePosition(lat, lon) {
-    if (!this.positionMarker) {
-      this.positionMarker = L.circleMarker([lat, lon], {
-        radius: 8,
-        fillColor: '#2196F3',
-        fillOpacity: 1,
-        color: '#fff',
-        weight: 2,
-      }).addTo(this.map);
+    if (!this._playerMarker) {
+      const el = this._createDotMarker('#2196F3');
+      this._playerMarker = new maplibregl.Marker({ element: el })
+        .setLngLat([lon, lat])
+        .addTo(this.map);
     } else {
-      this.positionMarker.setLatLng([lat, lon]);
+      this._playerMarker.setLngLat([lon, lat]);
     }
   },
 
@@ -214,22 +340,58 @@ const GameMap = {
    * @param {string|null} cellId - Cell being occupied, or null.
    */
   highlightCurrentCell(cellId) {
-    if (!this.gridLayer) return;
-    this.gridLayer.eachLayer((layer) => {
-      const id = layer.feature.properties.cell_id;
-      if (id === cellId) {
-        layer.setStyle({ color: '#FF9800', weight: 3, opacity: 1 });
-      } else {
-        // Reset to default unless visited
-        const isVisited = App.state.visitedCells[id];
-        layer.setStyle({
-          color: '#2196F3',
-          weight: 3,
-          opacity: 0.6,
-          fillColor: isVisited ? '#4CAF50' : 'transparent',
-          fillOpacity: isVisited ? 0.5 : 0,
-        });
+    if (!this.map || !this._cellIdToIdx) return;
+
+    // Remove highlight from previous cell
+    if (this._currentCellId !== null) {
+      const prevIdx = this._cellIdToIdx[this._currentCellId];
+      if (prevIdx !== undefined) {
+        this.map.setFeatureState(
+          { source: this._gridSourceId, id: prevIdx },
+          { current: false }
+        );
       }
-    });
+    }
+
+    // Highlight new cell
+    this._currentCellId = cellId;
+    if (cellId !== null) {
+      const idx = this._cellIdToIdx[cellId];
+      if (idx !== undefined) {
+        this.map.setFeatureState(
+          { source: this._gridSourceId, id: idx },
+          { current: true }
+        );
+      }
+    }
+  },
+
+  /**
+   * Compute the center of a GeoJSON FeatureCollection.
+   * @param {Object} geojson - GeoJSON FeatureCollection.
+   * @returns {{lat: number, lon: number}} Center point.
+   */
+  getGeoJSONCenter(geojson) {
+    const bbox = turf.bbox(geojson);
+    return {
+      lat: (bbox[1] + bbox[3]) / 2,
+      lon: (bbox[0] + bbox[2]) / 2,
+    };
+  },
+
+  /**
+   * Create a circular DOM marker element.
+   * @param {string} color - CSS color.
+   * @returns {HTMLElement} Marker element.
+   */
+  _createDotMarker(color) {
+    const el = document.createElement('div');
+    el.style.width = '16px';
+    el.style.height = '16px';
+    el.style.borderRadius = '50%';
+    el.style.backgroundColor = color;
+    el.style.border = '2px solid #fff';
+    el.style.boxShadow = '0 0 4px rgba(0,0,0,0.3)';
+    return el;
   },
 };
