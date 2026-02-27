@@ -1,53 +1,32 @@
 """Grid provider abstraction for different grid systems.
 
-Supports both Tilastokeskus statistical grids (DB-backed) and H3 hexagonal
-grids (computed on-the-fly without DB storage).
-
-TODO: Investigate whether Tilastokeskus grids can also be virtualized, since
-the grid_inspire ID (e.g. '250mN667675E38875') encodes the bottom-left corner
-coordinates, allowing geometry to be derived without DB lookup.
+Supports Tilastokeskus statistical grids (virtualized from grid_inspire IDs)
+and H3 hexagonal grids (computed on-the-fly). Neither requires DB storage.
 """
 
 import json
 import math
-from typing import Protocol
+import re
+from abc import ABC, abstractmethod
 
 import h3
 from django.contrib.gis.geos import Point, Polygon
 
-from game.models import GridCell
+
+# Grid size in meters for each statistical grid label
+_STAT_GRID_SIZES = {"250m": 250, "1km": 1000, "5km": 5000}
+
+# Finland bounding box in EPSG:3067 (easting, northing)
+_FINLAND_BBOX_3067 = (60_000, 6_600_000, 770_000, 7_800_000)  # min_e, min_n, max_e, max_n
+
+# Regex for parsing grid_inspire identifiers like "250mN667675E38875"
+_INSPIRE_RE = re.compile(r"^(250m|1km|5km)N(\d+)E(\d+)$")
 
 
-class GridProvider(Protocol):
-    """Protocol defining the interface for grid providers."""
+class GridProvider(ABC):
+    """Abstract base class defining the interface for grid providers."""
 
-    def get_cells_in_radius(self, center_lat: float, center_lon: float, radius_m: int) -> tuple[dict, int]:
-        """Return grid cells within a radius as a GeoJSON FeatureCollection.
-
-        Args:
-            center_lat: Center latitude in WGS84.
-            center_lon: Center longitude in WGS84.
-            radius_m: Radius in meters.
-
-        Returns:
-            Tuple of (GeoJSON FeatureCollection dict, cell count).
-        """
-        ...
-
-    def validate_cell(self, center_lon: float, center_lat: float, radius_m: int, cell_id: str) -> bool:
-        """Verify a cell_id belongs to the play area defined by center and radius.
-
-        Args:
-            center_lon: Center longitude in WGS84.
-            center_lat: Center latitude in WGS84.
-            radius_m: Radius in meters.
-            cell_id: The cell identifier to check.
-
-        Returns:
-            True if the cell exists within the play area.
-        """
-        ...
-
+    @abstractmethod
     def get_cells_in_polygon(self, polygon_4326: Polygon) -> tuple[dict, int]:
         """Return grid cells within a polygon as a GeoJSON FeatureCollection.
 
@@ -57,8 +36,8 @@ class GridProvider(Protocol):
         Returns:
             Tuple of (GeoJSON FeatureCollection dict, cell count).
         """
-        ...
 
+    @abstractmethod
     def validate_cell_in_polygon(self, polygon_4326: Polygon, cell_id: str) -> bool:
         """Verify a cell_id belongs to the play area defined by a polygon.
 
@@ -69,11 +48,83 @@ class GridProvider(Protocol):
         Returns:
             True if the cell exists within the polygon.
         """
-        ...
+
+    def get_cells_in_radius(self, center_lat: float, center_lon: float, radius_m: int) -> tuple[dict, int]:
+        """Return grid cells within a radius as a GeoJSON FeatureCollection.
+
+        Builds a circle polygon from center + radius, then delegates to
+        get_cells_in_polygon.
+
+        Args:
+            center_lat: Center latitude in WGS84.
+            center_lon: Center longitude in WGS84.
+            radius_m: Radius in meters.
+
+        Returns:
+            Tuple of (GeoJSON FeatureCollection dict, cell count).
+        """
+        polygon_4326 = _build_circle_polygon(center_lat, center_lon, radius_m)
+        return self.get_cells_in_polygon(polygon_4326)
+
+    def validate_cell(self, center_lon: float, center_lat: float, radius_m: int, cell_id: str) -> bool:
+        """Verify a cell_id belongs to the play area defined by center and radius.
+
+        Builds a circle polygon from center + radius, then delegates to
+        validate_cell_in_polygon.
+
+        Args:
+            center_lon: Center longitude in WGS84.
+            center_lat: Center latitude in WGS84.
+            radius_m: Radius in meters.
+            cell_id: The cell identifier to check.
+
+        Returns:
+            True if the cell exists within the play area.
+        """
+        polygon_4326 = _build_circle_polygon(center_lat, center_lon, radius_m)
+        return self.validate_cell_in_polygon(polygon_4326, cell_id)
 
 
-class StatisticalGridProvider:
-    """Grid provider for Tilastokeskus statistical grids (DB-backed).
+def _build_circle_polygon(center_lat: float, center_lon: float, radius_m: int) -> Polygon:
+    """Build a circle polygon by buffering a center point in EPSG:3067.
+
+    Args:
+        center_lat: Center latitude in WGS84.
+        center_lon: Center longitude in WGS84.
+        radius_m: Radius in meters.
+
+    Returns:
+        Polygon in EPSG:4326 representing the buffered circle.
+    """
+    center = Point(center_lon, center_lat, srid=4326)
+    center_3067 = center.transform(3067, clone=True)
+    buffer = center_3067.buffer(radius_m)
+    buffer.srid = 3067
+    polygon_4326 = buffer.transform(4326, clone=True)
+    return polygon_4326
+
+
+def _parse_grid_inspire(cell_id: str) -> tuple[str, int, int] | None:
+    """Parse a grid_inspire identifier into its components.
+
+    Args:
+        cell_id: Grid inspire ID like "250mN667675E38875".
+
+    Returns:
+        Tuple of (size_label, northing, easting) or None if invalid.
+    """
+    match = _INSPIRE_RE.match(cell_id)
+    if not match:
+        return None
+    return match.group(1), int(match.group(2)), int(match.group(3))
+
+
+class StatisticalGridProvider(GridProvider):
+    """Grid provider for Tilastokeskus statistical grids (virtualized).
+
+    Cell geometries are computed from grid_inspire IDs without DB queries.
+    The grid_inspire format encodes the bottom-left corner coordinates in
+    EPSG:3067, e.g. "250mN667675E38875" means a 250m cell at N=667675, E=38875.
 
     Args:
         grid_size: Grid size key (250m, 1km, 5km).
@@ -86,64 +137,13 @@ class StatisticalGridProvider:
             grid_size: Grid size key (250m, 1km, 5km).
         """
         self.grid_size = grid_size
-
-    def get_cells_in_radius(self, center_lat: float, center_lon: float, radius_m: int) -> tuple[dict, int]:
-        """Return statistical grid cells within a radius as GeoJSON.
-
-        Args:
-            center_lat: Center latitude in WGS84.
-            center_lon: Center longitude in WGS84.
-            radius_m: Radius in meters.
-
-        Returns:
-            Tuple of (GeoJSON FeatureCollection dict, cell count).
-        """
-        center = Point(center_lon, center_lat, srid=4326)
-        center_3067 = center.transform(3067, clone=True)
-        buffer = center_3067.buffer(radius_m)
-
-        cells = GridCell.objects.filter(
-            grid_size=self.grid_size,
-            geometry__intersects=buffer,
-        )
-
-        features = []
-        for cell in cells.iterator():
-            geom_4326 = cell.geometry.transform(4326, clone=True)
-            features.append(
-                {
-                    "type": "Feature",
-                    "geometry": json.loads(geom_4326.json),
-                    "properties": {"cell_id": cell.grid_inspire},
-                }
-            )
-
-        return {"type": "FeatureCollection", "features": features}, len(features)
-
-    def validate_cell(self, center_lon: float, center_lat: float, radius_m: int, cell_id: str) -> bool:
-        """Verify a cell belongs to the play area.
-
-        Args:
-            center_lon: Center longitude in WGS84.
-            center_lat: Center latitude in WGS84.
-            radius_m: Radius in meters.
-            cell_id: The grid_inspire identifier to check.
-
-        Returns:
-            True if the cell exists within the play area.
-        """
-        center = Point(center_lon, center_lat, srid=4326)
-        center_3067 = center.transform(3067, clone=True)
-        buffer = center_3067.buffer(radius_m)
-
-        return GridCell.objects.filter(
-            grid_size=self.grid_size,
-            grid_inspire=cell_id,
-            geometry__intersects=buffer,
-        ).exists()
+        self.cell_size = _STAT_GRID_SIZES[grid_size]
 
     def get_cells_in_polygon(self, polygon_4326: Polygon) -> tuple[dict, int]:
         """Return statistical grid cells within a polygon as GeoJSON.
+
+        Iterates over candidate grid cells whose centroid falls within the
+        polygon. Geometry is computed from grid alignment, not from DB.
 
         Args:
             polygon_4326: Polygon geometry in EPSG:4326.
@@ -152,42 +152,82 @@ class StatisticalGridProvider:
             Tuple of (GeoJSON FeatureCollection dict, cell count).
         """
         polygon_3067 = polygon_4326.transform(3067, clone=True)
+        bbox = polygon_3067.extent  # (xmin, ymin, xmax, ymax) = (min_e, min_n, max_e, max_n)
+        size = self.cell_size
+        half = size / 2
 
-        cells = GridCell.objects.filter(
-            grid_size=self.grid_size,
-            geometry__intersects=polygon_3067,
-        )
+        # Clamp to Finland bounding box
+        min_e = max(bbox[0], _FINLAND_BBOX_3067[0])
+        min_n = max(bbox[1], _FINLAND_BBOX_3067[1])
+        max_e = min(bbox[2], _FINLAND_BBOX_3067[2])
+        max_n = min(bbox[3], _FINLAND_BBOX_3067[3])
+
+        # Snap to grid alignment
+        start_e = int((min_e // size) * size)
+        start_n = int((min_n // size) * size)
+        end_e = int(max_e) + size
+        end_n = int(max_n) + size
 
         features = []
-        for cell in cells.iterator():
-            geom_4326 = cell.geometry.transform(4326, clone=True)
-            features.append(
-                {
-                    "type": "Feature",
-                    "geometry": json.loads(geom_4326.json),
-                    "properties": {"cell_id": cell.grid_inspire},
-                }
-            )
+        for e in range(start_e, end_e, size):
+            for n in range(start_n, end_n, size):
+                # Check if centroid falls within the polygon
+                centroid = Point(e + half, n + half, srid=3067)
+                if not polygon_3067.contains(centroid):
+                    continue
+
+                cell_id = f"{self.grid_size}N{n}E{e}"
+                cell_poly_3067 = Polygon(
+                    ((e, n), (e + size, n), (e + size, n + size), (e, n + size), (e, n)),
+                    srid=3067,
+                )
+                cell_poly_4326 = cell_poly_3067.transform(4326, clone=True)
+                features.append(
+                    {
+                        "type": "Feature",
+                        "geometry": json.loads(cell_poly_4326.json),
+                        "properties": {"cell_id": cell_id},
+                    }
+                )
 
         return {"type": "FeatureCollection", "features": features}, len(features)
 
     def validate_cell_in_polygon(self, polygon_4326: Polygon, cell_id: str) -> bool:
         """Verify a cell belongs to the play area defined by a polygon.
 
+        Parses the cell_id to extract coordinates, computes the centroid,
+        and checks if it falls within the polygon.
+
         Args:
             polygon_4326: Polygon geometry in EPSG:4326.
             cell_id: The grid_inspire identifier to check.
 
         Returns:
-            True if the cell exists within the polygon.
+            True if the cell's centroid is within the polygon.
         """
-        polygon_3067 = polygon_4326.transform(3067, clone=True)
+        parsed = _parse_grid_inspire(cell_id)
+        if not parsed:
+            return False
 
-        return GridCell.objects.filter(
-            grid_size=self.grid_size,
-            grid_inspire=cell_id,
-            geometry__intersects=polygon_3067,
-        ).exists()
+        label, n, e = parsed
+        if label != self.grid_size:
+            return False
+
+        size = self.cell_size
+        half = size / 2
+        centroid_e = e + half
+        centroid_n = n + half
+
+        # Quick check: within Finland bounding box
+        if not (
+            _FINLAND_BBOX_3067[0] <= centroid_e <= _FINLAND_BBOX_3067[2]
+            and _FINLAND_BBOX_3067[1] <= centroid_n <= _FINLAND_BBOX_3067[3]
+        ):
+            return False
+
+        polygon_3067 = polygon_4326.transform(3067, clone=True)
+        centroid = Point(centroid_e, centroid_n, srid=3067)
+        return polygon_3067.contains(centroid)
 
 
 # H3 resolution to approximate edge length in meters
@@ -222,18 +262,18 @@ def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> f
     return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-class H3GridProvider:
+class H3GridProvider(GridProvider):
     """Grid provider for H3 hexagonal grids (virtual, no DB storage).
 
     Args:
-        resolution: H3 resolution level (6-9).
+        resolution: H3 resolution level (6-10).
     """
 
     def __init__(self, resolution: int) -> None:
         """Initialize with an H3 resolution.
 
         Args:
-            resolution: H3 resolution level (6-9).
+            resolution: H3 resolution level (6-10).
         """
         self.resolution = resolution
 
@@ -360,7 +400,7 @@ class H3GridProvider:
 GRID_TYPE_STATISTICAL = {"stat_250m": "250m", "stat_1km": "1km", "stat_5km": "5km"}
 
 
-def get_grid_provider(grid_type: str) -> StatisticalGridProvider | H3GridProvider:
+def get_grid_provider(grid_type: str) -> GridProvider:
     """Create a grid provider for the given grid type.
 
     Args:
