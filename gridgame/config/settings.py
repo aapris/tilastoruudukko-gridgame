@@ -93,6 +93,11 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Auth redirects
+LOGIN_URL = "/login/"
+LOGIN_REDIRECT_URL = "/editor/"
+LOGOUT_REDIRECT_URL = "/login/"
+
 # CORS — allow all in development
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 

@@ -94,7 +94,22 @@ class CreateGameView(APIView):
             grid_type = board.grid_type
             provider = get_grid_provider(grid_type)
             play_area = board.area.geometry
-            grid_geojson, total_cells = provider.get_cells_in_polygon(play_area)
+
+            # Use published board cells if available, otherwise compute from area
+            board_cells = board.cells.filter(is_enabled=True)
+            if board.is_published and board_cells.exists():
+                enabled_cell_ids = list(board_cells.values_list("cell_id", flat=True))
+                features = []
+                for cell_id in enabled_cell_ids:
+                    feature = provider.cell_id_to_geojson_feature(cell_id)
+                    if feature:
+                        features.append(feature)
+                grid_geojson = {"type": "FeatureCollection", "features": features}
+                total_cells = len(features)
+                snapshot_cell_ids = enabled_cell_ids
+            else:
+                grid_geojson, total_cells = provider.get_cells_in_polygon(play_area)
+                snapshot_cell_ids = []
 
             game = Game.objects.create(
                 player_token=player_token,
@@ -105,6 +120,7 @@ class CreateGameView(APIView):
                 min_dwell_s=data["min_dwell_s"],
                 time_limit_s=data["time_limit_s"],
                 total_cells=total_cells,
+                snapshot_cell_ids=snapshot_cell_ids,
             )
         else:
             # Radius-based game
@@ -172,7 +188,16 @@ class GameStateView(APIView):
 
         if request.query_params.get("include_grid") == "true":
             provider = get_grid_provider(game.grid_type)
-            if game.play_area:
+
+            if game.snapshot_cell_ids:
+                # Reconstruct GeoJSON from snapshot (not from current board state)
+                features = []
+                for cell_id in game.snapshot_cell_ids:
+                    feature = provider.cell_id_to_geojson_feature(cell_id)
+                    if feature:
+                        features.append(feature)
+                grid_geojson = {"type": "FeatureCollection", "features": features}
+            elif game.play_area:
                 grid_geojson, _total = provider.get_cells_in_polygon(game.play_area)
             else:
                 grid_geojson, _total = provider.get_cells_in_radius(
@@ -218,11 +243,15 @@ class RecordVisitView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        provider = get_grid_provider(game.grid_type)
-        if game.play_area:
-            cell_valid = provider.validate_cell_in_polygon(game.play_area, data["cell_id"])
+        if game.snapshot_cell_ids:
+            # Fast set lookup against snapshot
+            cell_valid = data["cell_id"] in game.snapshot_cell_ids
         else:
-            cell_valid = provider.validate_cell(game.center.x, game.center.y, game.radius_m, data["cell_id"])
+            provider = get_grid_provider(game.grid_type)
+            if game.play_area:
+                cell_valid = provider.validate_cell_in_polygon(game.play_area, data["cell_id"])
+            else:
+                cell_valid = provider.validate_cell(game.center.x, game.center.y, game.radius_m, data["cell_id"])
         if not cell_valid:
             return Response(
                 {"error": f"Cell {data['cell_id']} is not in the game's play area."},

@@ -50,6 +50,8 @@ const App = {
       totalCount: document.getElementById('total-count'),
       scorePct: document.getElementById('score-pct'),
       cellStatus: document.getElementById('cell-status'),
+      layerBtn: document.getElementById('layer-btn'),
+      pickerLayerBtn: document.getElementById('picker-layer-btn'),
       pauseBtn: document.getElementById('pause-btn'),
       pauseModal: document.getElementById('pause-modal'),
       pauseScore: document.getElementById('pause-score'),
@@ -70,6 +72,14 @@ const App = {
     this.els.setupForm.addEventListener('submit', (e) => this.onChooseLocation(e));
     this.els.pickerBackBtn.addEventListener('click', () => this.onPickerBack());
     this.els.pickerStartBtn.addEventListener('click', () => this.onConfirmStart());
+    this.els.layerBtn.addEventListener('click', () => {
+      const isOSM = GameMap.toggleGameBaseMap();
+      this.els.layerBtn.textContent = isOSM ? 'Vector' : 'OSM';
+    });
+    this.els.pickerLayerBtn.addEventListener('click', () => {
+      const isOSM = GameMap.togglePickerBaseMap();
+      this.els.pickerLayerBtn.textContent = isOSM ? 'Vector' : 'OSM';
+    });
     this.els.pauseBtn.addEventListener('click', () => this.onPauseGame());
     this.els.pauseResumeBtn.addEventListener('click', () => this.onResumeFromPause());
     this.els.pauseLobbyBtn.addEventListener('click', () => this.onBackToLobby());

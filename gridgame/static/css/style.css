@@ -155,6 +155,16 @@ button:disabled {
   background: #388E3C;
 }
 
+.picker-layer-btn {
+  background: #555;
+  font-size: 0.75rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.picker-layer-btn:active {
+  background: #333;
+}
+
 /* Game screen */
 #game-screen {
   flex-direction: column;
@@ -203,12 +213,19 @@ button:disabled {
   text-align: center;
 }
 
+.hud-btn,
 #pause-btn {
   width: auto;
   margin: 0;
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
   background: #666;
+}
+
+#layer-btn {
+  font-size: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  background: #555;
 }
 
 #pause-btn:active {

@@ -8,6 +8,7 @@ const GameMap = {
   _gridSourceId: 'grid-cells',
   _visitedCellIds: new Set(),
   _currentCellId: null,
+  _useOSM: false,
 
   // Picker state
   pickerMap: null,
@@ -16,6 +17,7 @@ const GameMap = {
   _pickerPlayerPos: null,
   pickerCenter: null,
   pickerRadiusM: null,
+  _pickerUseOSM: false,
 
   // Game player marker
   _playerMarker: null,
@@ -38,8 +40,12 @@ const GameMap = {
       zoom: 14,
     });
 
+    this._pickerUseOSM = false;
     this._pickerReady = new Promise((resolve) => {
-      this.pickerMap.on('load', () => resolve());
+      this.pickerMap.on('load', () => {
+        this._addOSMSource(this.pickerMap);
+        resolve();
+      });
     });
 
     // Player position marker (blue dot)
@@ -204,8 +210,12 @@ const GameMap = {
     // Move zoom control to top-right
     this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
+    this._useOSM = false;
     this._mapReady = new Promise((resolve) => {
-      this.map.on('load', () => resolve());
+      this.map.on('load', () => {
+        this._addOSMSource(this.map);
+        resolve();
+      });
     });
   },
 
@@ -393,5 +403,67 @@ const GameMap = {
     el.style.border = '2px solid #fff';
     el.style.boxShadow = '0 0 4px rgba(0,0,0,0.3)';
     return el;
+  },
+
+  /**
+   * Add OSM raster tile source to a map (hidden by default).
+   * @param {Object} map - MapLibre map instance.
+   */
+  _addOSMSource(map) {
+    map.addSource('osm-raster', {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    });
+    map.addLayer(
+      {
+        id: 'osm-raster-layer',
+        type: 'raster',
+        source: 'osm-raster',
+        layout: { visibility: 'none' },
+      },
+      map.getStyle().layers[0]?.id
+    );
+  },
+
+  /**
+   * Toggle OSM raster basemap on/off for a given map.
+   * @param {Object} map - MapLibre map instance.
+   * @param {boolean} showOSM - Whether to show OSM.
+   */
+  _toggleBaseMap(map, showOSM) {
+    const style = map.getStyle();
+    for (const layer of style.layers) {
+      if (
+        layer.id === 'osm-raster-layer' ||
+        layer.id.startsWith('grid-') ||
+        layer.id.startsWith('picker-')
+      ) {
+        continue;
+      }
+      map.setLayoutProperty(layer.id, 'visibility', showOSM ? 'none' : 'visible');
+    }
+    map.setLayoutProperty('osm-raster-layer', 'visibility', showOSM ? 'visible' : 'none');
+  },
+
+  /**
+   * Toggle the game map basemap between vector and OSM raster.
+   * @returns {boolean} Whether OSM is now active.
+   */
+  toggleGameBaseMap() {
+    this._useOSM = !this._useOSM;
+    if (this.map) this._toggleBaseMap(this.map, this._useOSM);
+    return this._useOSM;
+  },
+
+  /**
+   * Toggle the picker map basemap between vector and OSM raster.
+   * @returns {boolean} Whether OSM is now active.
+   */
+  togglePickerBaseMap() {
+    this._pickerUseOSM = !this._pickerUseOSM;
+    if (this.pickerMap) this._toggleBaseMap(this.pickerMap, this._pickerUseOSM);
+    return this._pickerUseOSM;
   },
 };

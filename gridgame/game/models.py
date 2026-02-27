@@ -48,6 +48,7 @@ class Board(models.Model):
     area = models.ForeignKey(Area, on_delete=models.PROTECT, related_name="boards")
     grid_type = models.CharField(max_length=16, choices=GRID_TYPE_CHOICES, default="h3_res9")
     is_active = models.BooleanField(default=True)
+    is_published = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -83,6 +84,27 @@ class GridCell(gis_models.Model):
         return self.grid_inspire
 
 
+class BoardCell(models.Model):
+    """A cell belonging to a board, with an enabled/disabled toggle for the editor."""
+
+    board = models.ForeignKey(Board, on_delete=models.CASCADE, related_name="cells")
+    cell_id = models.CharField(max_length=64)
+    is_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["board", "cell_id"], name="unique_board_cell"),
+        ]
+        indexes = [
+            models.Index(fields=["board", "is_enabled"]),
+        ]
+
+    def __str__(self) -> str:
+        """Return the cell ID and enabled status."""
+        status = "enabled" if self.is_enabled else "disabled"
+        return f"{self.cell_id} ({status})"
+
+
 class Game(models.Model):
     """A single game session where a player visits grid cells."""
 
@@ -95,6 +117,7 @@ class Game(models.Model):
     grid_type = models.CharField(max_length=16, choices=GRID_TYPE_CHOICES)
     board = models.ForeignKey(Board, on_delete=models.SET_NULL, null=True, blank=True, related_name="games")
     play_area = gis_models.PolygonField(srid=4326, null=True, blank=True)
+    snapshot_cell_ids = models.JSONField(default=list, blank=True)
 
     min_dwell_s = models.IntegerField(default=10)
     time_limit_s = models.IntegerField(null=True, blank=True)

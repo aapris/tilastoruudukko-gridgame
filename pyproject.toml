@@ -37,6 +37,8 @@ select = ["F", "E", "W", "I", "UP", "B", "SIM", "RUF", "N", "PTH", "ANN", "PT"]
 "gridgame/game/models.py" = ["RUF012"]
 "gridgame/game/serializers.py" = ["RUF012"]
 "gridgame/game/admin.py" = ["RUF012"]
+"gridgame/game/editor_serializers.py" = ["RUF012"]
+"gridgame/game/editor_views.py" = ["RUF012"]
 
 [tool.ruff.format]
 quote-style = "double"

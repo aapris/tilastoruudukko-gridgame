@@ -38,6 +38,17 @@ class GridProvider(ABC):
         """
 
     @abstractmethod
+    def cell_id_to_geojson_feature(self, cell_id: str) -> dict | None:
+        """Convert a cell_id to a GeoJSON Feature with polygon geometry in 4326.
+
+        Args:
+            cell_id: The cell identifier.
+
+        Returns:
+            GeoJSON Feature dict or None if cell_id is invalid.
+        """
+
+    @abstractmethod
     def validate_cell_in_polygon(self, polygon_4326: Polygon, cell_id: str) -> bool:
         """Verify a cell_id belongs to the play area defined by a polygon.
 
@@ -192,6 +203,37 @@ class StatisticalGridProvider(GridProvider):
 
         return {"type": "FeatureCollection", "features": features}, len(features)
 
+    def cell_id_to_geojson_feature(self, cell_id: str) -> dict | None:
+        """Convert a statistical grid cell_id to a GeoJSON Feature.
+
+        Parses the INSPIRE ID to extract coordinates and builds the polygon.
+
+        Args:
+            cell_id: The grid_inspire identifier (e.g. "250mN667675E38875").
+
+        Returns:
+            GeoJSON Feature dict or None if cell_id is invalid.
+        """
+        parsed = _parse_grid_inspire(cell_id)
+        if not parsed:
+            return None
+
+        label, n, e = parsed
+        if label != self.grid_size:
+            return None
+
+        size = self.cell_size
+        cell_poly_3067 = Polygon(
+            ((e, n), (e + size, n), (e + size, n + size), (e, n + size), (e, n)),
+            srid=3067,
+        )
+        cell_poly_4326 = cell_poly_3067.transform(4326, clone=True)
+        return {
+            "type": "Feature",
+            "geometry": json.loads(cell_poly_4326.json),
+            "properties": {"cell_id": cell_id},
+        }
+
     def validate_cell_in_polygon(self, polygon_4326: Polygon, cell_id: str) -> bool:
         """Verify a cell belongs to the play area defined by a polygon.
 
@@ -276,6 +318,29 @@ class H3GridProvider(GridProvider):
             resolution: H3 resolution level (6-10).
         """
         self.resolution = resolution
+
+    def cell_id_to_geojson_feature(self, cell_id: str) -> dict | None:
+        """Convert an H3 cell index to a GeoJSON Feature.
+
+        Args:
+            cell_id: The H3 cell index string.
+
+        Returns:
+            GeoJSON Feature dict or None if cell_id is invalid.
+        """
+        if not h3.is_valid_cell(cell_id):
+            return None
+        if h3.get_resolution(cell_id) != self.resolution:
+            return None
+
+        boundary = h3.cell_to_boundary(cell_id)
+        coords = [[lng, lat] for lat, lng in boundary]
+        coords.append(coords[0])
+        return {
+            "type": "Feature",
+            "geometry": {"type": "Polygon", "coordinates": [coords]},
+            "properties": {"cell_id": cell_id},
+        }
 
     def get_cells_in_radius(self, center_lat: float, center_lon: float, radius_m: int) -> tuple[dict, int]:
         """Return H3 hex cells within a radius as GeoJSON.
