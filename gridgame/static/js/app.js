@@ -60,6 +60,7 @@ const App = {
       setupStatus: document.getElementById('setup-status'),
       chooseLocationBtn: document.getElementById('choose-location-btn'),
       boardNameDisplay: document.getElementById('board-name'),
+      shareUrlBtn: document.getElementById('share-url-btn'),
       pickerStatus: document.getElementById('picker-status'),
       pickerBackBtn: document.getElementById('picker-back-btn'),
       pickerStartBtn: document.getElementById('picker-start-btn'),
@@ -110,6 +111,7 @@ const App = {
     this.els.lobbyNewGameBtn.addEventListener('click', () => this.onLobbyNewGame());
     this.els.boardSelect.addEventListener('change', () => this.onBoardSelectChange());
     this.els.setupBackBtn.addEventListener('click', () => this.loadLobby());
+    this.els.shareUrlBtn.addEventListener('click', () => this.onCopyShareUrl());
     this.els.setupForm.addEventListener('submit', (e) => this.onChooseLocation(e));
     this.els.pickerBackBtn.addEventListener('click', () => this.onPickerBack());
     this.els.pickerStartBtn.addEventListener('click', () => this.onConfirmStart());
@@ -151,6 +153,13 @@ const App = {
     this.loadSettings();
     await this.checkAuth();
     await this.loadLobby();
+
+    // If URL contains board/area params, open setup with pre-filled values.
+    const urlParams = this._readUrlParams();
+    if (urlParams) {
+      await this.onLobbyNewGame();
+      this._applyUrlParams(urlParams);
+    }
   },
 
   /** Load settings from localStorage. */
@@ -501,6 +510,76 @@ const App = {
     const boardSelected = this.els.boardSelect.value !== '';
     this.els.customAreaFields.style.display = boardSelected ? 'none' : '';
     this.els.chooseLocationBtn.textContent = boardSelected ? 'Start Game' : 'Choose Location';
+  },
+
+  /**
+   * Read board/area configuration from URL query parameters.
+   * Supported params: board, grid_type, radius_m, min_dwell_s.
+   * @returns {Object|null} Parsed params or null if none present.
+   */
+  _readUrlParams() {
+    const params = new URLSearchParams(window.location.search);
+    const board = params.get('board');
+    const gridType = params.get('grid_type');
+    const radiusM = params.get('radius_m');
+    const minDwellS = params.get('min_dwell_s');
+    if (!board && !gridType && !radiusM) return null;
+    return { board, gridType, radiusM, minDwellS };
+  },
+
+  /**
+   * Apply pre-parsed URL params to the setup form.
+   * Must be called after boards have been fetched and populated.
+   * @param {Object} params - Result from _readUrlParams().
+   */
+  _applyUrlParams(params) {
+    if (params.board) {
+      // Check that the board option actually exists in the select
+      const option = this.els.boardSelect.querySelector(`option[value="${params.board}"]`);
+      if (option) {
+        this.els.boardSelect.value = params.board;
+      }
+    } else {
+      if (params.gridType) document.getElementById('grid-type').value = params.gridType;
+      if (params.radiusM) document.getElementById('radius').value = params.radiusM;
+    }
+    if (params.minDwellS) document.getElementById('min-dwell').value = params.minDwellS;
+    this.onBoardSelectChange();
+  },
+
+  /**
+   * Build a shareable URL for the current setup form state.
+   * @returns {string} Absolute URL with query params.
+   */
+  _generateShareUrl() {
+    const url = new URL(window.location.origin + window.location.pathname);
+    const boardId = this.els.boardSelect.value;
+    if (boardId) {
+      url.searchParams.set('board', boardId);
+    } else {
+      url.searchParams.set('grid_type', document.getElementById('grid-type').value);
+      url.searchParams.set('radius_m', document.getElementById('radius').value);
+    }
+    const minDwell = parseInt(document.getElementById('min-dwell').value, 10);
+    if (minDwell && minDwell !== 10) {
+      url.searchParams.set('min_dwell_s', minDwell);
+    }
+    return url.toString();
+  },
+
+  /** Copy the share URL to clipboard and give visual feedback. */
+  async onCopyShareUrl() {
+    const url = this._generateShareUrl();
+    try {
+      await navigator.clipboard.writeText(url);
+      const btn = this.els.shareUrlBtn;
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 2000);
+    } catch {
+      // Clipboard API not available — fall back to prompt
+      prompt('Copy this link:', url);
+    }
   },
 
   /**
