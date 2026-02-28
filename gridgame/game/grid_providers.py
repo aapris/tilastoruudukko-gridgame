@@ -362,13 +362,14 @@ class H3GridProvider(GridProvider):
 
         all_cells = h3.grid_disk(center_cell, k)
 
-        # Filter to cells whose center is within the radius
+        # Include cells that intersect the circle: center within radius OR any vertex within radius
         features = []
         for cell in all_cells:
             cell_lat, cell_lon = h3.cell_to_latlng(cell)
-            dist = _haversine_distance(center_lat, center_lon, cell_lat, cell_lon)
-            if dist <= radius_m:
-                boundary = h3.cell_to_boundary(cell)
+            boundary = h3.cell_to_boundary(cell)
+            if _haversine_distance(center_lat, center_lon, cell_lat, cell_lon) <= radius_m or any(
+                _haversine_distance(center_lat, center_lon, lat, lon) <= radius_m for lat, lon in boundary
+            ):
                 # h3 returns boundary as list of (lat, lon) tuples; GeoJSON needs [lon, lat]
                 coords = [[lng, lat] for lat, lng in boundary]
                 coords.append(coords[0])  # close the polygon ring
@@ -386,7 +387,7 @@ class H3GridProvider(GridProvider):
         """Verify an H3 cell belongs to the play area.
 
         Checks that the cell is a valid H3 index at the correct resolution
-        and its center falls within the game radius.
+        and intersects the game radius (center or any vertex within radius).
 
         Args:
             center_lon: Center longitude in WGS84.
@@ -395,7 +396,7 @@ class H3GridProvider(GridProvider):
             cell_id: The H3 cell index to check.
 
         Returns:
-            True if the cell is valid and within the play area.
+            True if the cell is valid and intersects the play area.
         """
         if not h3.is_valid_cell(cell_id):
             return False
@@ -403,8 +404,10 @@ class H3GridProvider(GridProvider):
             return False
 
         cell_lat, cell_lon = h3.cell_to_latlng(cell_id)
-        dist = _haversine_distance(center_lat, center_lon, cell_lat, cell_lon)
-        return dist <= radius_m
+        if _haversine_distance(center_lat, center_lon, cell_lat, cell_lon) <= radius_m:
+            return True
+        boundary = h3.cell_to_boundary(cell_id)
+        return any(_haversine_distance(center_lat, center_lon, lat, lon) <= radius_m for lat, lon in boundary)
 
     def get_cells_in_polygon(self, polygon_4326: Polygon) -> tuple[dict, int]:
         """Return H3 hex cells within a polygon as GeoJSON.
@@ -420,7 +423,7 @@ class H3GridProvider(GridProvider):
         coords = [(coord[1], coord[0]) for coord in exterior.coords[:-1]]
         h3_poly = h3.LatLngPoly(coords)
 
-        cell_ids = h3.h3shape_to_cells(h3_poly, self.resolution)
+        cell_ids = h3.h3shape_to_cells_experimental(h3_poly, self.resolution, contain="overlap")
 
         features = []
         for cell in cell_ids:
@@ -456,7 +459,7 @@ class H3GridProvider(GridProvider):
         coords = [(coord[1], coord[0]) for coord in exterior.coords[:-1]]
         h3_poly = h3.LatLngPoly(coords)
 
-        cell_ids = h3.h3shape_to_cells(h3_poly, self.resolution)
+        cell_ids = h3.h3shape_to_cells_experimental(h3_poly, self.resolution, contain="overlap")
         return cell_id in cell_ids
 
 
