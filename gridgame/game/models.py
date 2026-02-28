@@ -59,31 +59,6 @@ class Board(models.Model):
         return self.name
 
 
-class GridCell(gis_models.Model):
-    """A statistical grid cell from Tilastokeskus data."""
-
-    GRID_SIZE_CHOICES = [("250m", "250 m"), ("1km", "1 km"), ("5km", "5 km")]
-
-    grid_size = models.CharField(max_length=4, choices=GRID_SIZE_CHOICES, db_index=True)
-    nro = models.IntegerField()
-    grid_inspire = models.CharField(max_length=32)
-    municipality_code = models.CharField(max_length=3)
-    geometry = gis_models.PolygonField(srid=3067)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=["grid_size", "nro"]),
-            models.Index(fields=["grid_inspire"]),
-        ]
-        constraints = [
-            models.UniqueConstraint(fields=["grid_size", "nro"], name="unique_grid_cell"),
-        ]
-
-    def __str__(self) -> str:
-        """Return the INSPIRE code as string representation."""
-        return self.grid_inspire
-
-
 class BoardCell(models.Model):
     """A cell belonging to a board, with an enabled/disabled toggle for the editor."""
 
