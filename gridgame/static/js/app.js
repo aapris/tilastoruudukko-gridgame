@@ -16,6 +16,13 @@ const App = {
     boardName: null,
   },
 
+  /** Persistent user settings. */
+  settings: {
+    autoCenterEnabled: true,
+    recenterDelayS: 15,
+    mapStyleOSM: false,
+  },
+
   /** Auth state. */
   authState: {
     authenticated: false,
@@ -70,6 +77,15 @@ const App = {
       resultPct: document.getElementById('result-pct'),
       resultTime: document.getElementById('result-time'),
       newGameBtn: document.getElementById('new-game-btn'),
+      // Settings elements
+      settingsBtn: document.getElementById('settings-btn'),
+      settingsModal: document.getElementById('settings-modal'),
+      settingsAutoCenter: document.getElementById('settings-auto-center'),
+      settingsRecenterDelay: document.getElementById('settings-recenter-delay'),
+      settingsRecenterDelayRow: document.getElementById('settings-recenter-delay-row'),
+      settingsMapStyle: document.getElementById('settings-map-style'),
+      settingsSaveBtn: document.getElementById('settings-save-btn'),
+      settingsCancelBtn: document.getElementById('settings-cancel-btn'),
       // Auth elements
       authBar: document.getElementById('auth-bar'),
       authUser: document.getElementById('auth-user'),
@@ -93,12 +109,20 @@ const App = {
     this.els.pickerBackBtn.addEventListener('click', () => this.onPickerBack());
     this.els.pickerStartBtn.addEventListener('click', () => this.onConfirmStart());
     this.els.layerBtn.addEventListener('click', () => {
-      const isOSM = GameMap.toggleGameBaseMap();
-      this.els.layerBtn.textContent = isOSM ? 'Vector' : 'OSM';
+      this.settings.mapStyleOSM = !this.settings.mapStyleOSM;
+      GameMap.setGameBaseMap(this.settings.mapStyleOSM);
+      this.saveSettings();
+      this._updateLayerBtn();
     });
     this.els.pickerLayerBtn.addEventListener('click', () => {
       const isOSM = GameMap.togglePickerBaseMap();
       this.els.pickerLayerBtn.textContent = isOSM ? 'Vector' : 'OSM';
+    });
+    this.els.settingsBtn.addEventListener('click', () => this.openSettingsModal());
+    this.els.settingsSaveBtn.addEventListener('click', () => this.onSettingsSave());
+    this.els.settingsCancelBtn.addEventListener('click', () => this.closeSettingsModal());
+    this.els.settingsAutoCenter.addEventListener('change', () => {
+      this.els.settingsRecenterDelayRow.style.display = this.els.settingsAutoCenter.checked ? '' : 'none';
     });
     this.els.pauseBtn.addEventListener('click', () => this.onPauseGame());
     this.els.pauseResumeBtn.addEventListener('click', () => this.onResumeFromPause());
@@ -113,8 +137,86 @@ const App = {
     this.els.authForm.addEventListener('submit', (e) => this.onAuthSubmit(e));
     this.els.authCancelBtn.addEventListener('click', () => this.hideAuthModal());
 
+    this.loadSettings();
     await this.checkAuth();
     await this.loadLobby();
+  },
+
+  /** Load settings from localStorage. */
+  loadSettings() {
+    const ac = localStorage.getItem('settings_autoCenterEnabled');
+    if (ac !== null) this.settings.autoCenterEnabled = ac === 'true';
+    const delay = localStorage.getItem('settings_recenterDelayS');
+    if (delay !== null) this.settings.recenterDelayS = parseInt(delay, 10);
+    const osm = localStorage.getItem('settings_mapStyleOSM');
+    if (osm !== null) this.settings.mapStyleOSM = osm === 'true';
+  },
+
+  /** Persist settings to localStorage. */
+  saveSettings() {
+    localStorage.setItem('settings_autoCenterEnabled', this.settings.autoCenterEnabled);
+    localStorage.setItem('settings_recenterDelayS', this.settings.recenterDelayS);
+    localStorage.setItem('settings_mapStyleOSM', this.settings.mapStyleOSM);
+  },
+
+  /** Apply current settings to the map and sync UI. */
+  applySettings() {
+    GameMap.setAutoCenter(this.settings.autoCenterEnabled);
+    GameMap.setRecenterDelay(this.settings.recenterDelayS);
+    GameMap.setGameBaseMap(this.settings.mapStyleOSM);
+    this._updateLayerBtn();
+  },
+
+  /** Update the layer button label to reflect current map style. */
+  _updateLayerBtn() {
+    if (this.els.layerBtn) {
+      this.els.layerBtn.textContent = this.settings.mapStyleOSM ? 'Vector' : 'OSM';
+    }
+  },
+
+  /** Open the settings modal and populate fields with current values. */
+  openSettingsModal() {
+    this.els.settingsAutoCenter.checked = this.settings.autoCenterEnabled;
+    this.els.settingsRecenterDelay.value = this.settings.recenterDelayS;
+    this.els.settingsRecenterDelayRow.style.display = this.settings.autoCenterEnabled ? '' : 'none';
+    this.els.settingsMapStyle.checked = this.settings.mapStyleOSM;
+    this.els.settingsModal.style.display = '';
+  },
+
+  /** Close the settings modal without saving. */
+  closeSettingsModal() {
+    this.els.settingsModal.style.display = 'none';
+  },
+
+  /** Save settings from modal, persist and apply. */
+  onSettingsSave() {
+    this.settings.autoCenterEnabled = this.els.settingsAutoCenter.checked;
+    this.settings.recenterDelayS = parseInt(this.els.settingsRecenterDelay.value, 10) || 15;
+    this.settings.mapStyleOSM = this.els.settingsMapStyle.checked;
+    this.saveSettings();
+    this.applySettings();
+    this.closeSettingsModal();
+  },
+
+  /** Save current setup form values to localStorage for next session. */
+  saveFormDefaults() {
+    const nickname = document.getElementById('nickname').value.trim();
+    if (nickname) localStorage.setItem('pref_nickname', nickname);
+    localStorage.setItem('pref_grid_type', document.getElementById('grid-type').value);
+    localStorage.setItem('pref_radius_m', document.getElementById('radius').value);
+    localStorage.setItem('pref_min_dwell_s', document.getElementById('min-dwell').value);
+  },
+
+  /** Restore saved setup form values from localStorage. */
+  restoreFormDefaults() {
+    const nickname = localStorage.getItem('pref_nickname');
+    if (nickname) document.getElementById('nickname').value = nickname;
+    const gridType = localStorage.getItem('pref_grid_type');
+    if (gridType) document.getElementById('grid-type').value = gridType;
+    const radiusM = localStorage.getItem('pref_radius_m');
+    if (radiusM) document.getElementById('radius').value = radiusM;
+    const minDwellS = localStorage.getItem('pref_min_dwell_s');
+    if (minDwellS) document.getElementById('min-dwell').value = minDwellS;
   },
 
   /** Check authentication status and update UI. */
@@ -296,6 +398,7 @@ const App = {
   /** Navigate from lobby to setup screen, fetching boards sorted by distance. */
   async onLobbyNewGame() {
     this.showScreen('setup-screen');
+    this.restoreFormDefaults();
 
     // Get user position for distance-based board sorting
     let lat = null;
@@ -375,6 +478,7 @@ const App = {
     e.preventDefault();
     this.els.chooseLocationBtn.disabled = true;
     this.els.setupStatus.textContent = '';
+    this.saveFormDefaults();
 
     const boardId = this.els.boardSelect.value;
 
@@ -479,6 +583,7 @@ const App = {
     this._updateBoardNameDisplay();
 
     GameMap.init(center.lat, center.lon);
+    this.applySettings();
     GameMap.loadGrid(this.state.grid, this.state.visitedCells);
 
     GPS.start(

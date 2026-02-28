@@ -22,6 +22,12 @@ const GameMap = {
   // Game player marker
   _playerMarker: null,
 
+  // Auto-center settings
+  _autoCenterEnabled: true,
+  _userMoved: false,
+  _recenterTimer: null,
+  _recenterDelayS: 15,
+
   /**
    * Initialize the picker map with a radius circle.
    * @param {number} lat - Player's GPS latitude.
@@ -182,6 +188,9 @@ const GameMap = {
    * Destroy the game map and clean up resources.
    */
   destroy() {
+    clearTimeout(this._recenterTimer);
+    this._recenterTimer = null;
+    this._userMoved = false;
     if (this.map) {
       this.map.remove();
       this.map = null;
@@ -216,6 +225,20 @@ const GameMap = {
         this._addOSMSource(this.map);
         resolve();
       });
+    });
+
+    // Detect user-initiated map moves (e.originalEvent is set only for interaction events)
+    this.map.on('movestart', (e) => {
+      if (!e.originalEvent) return;
+      this._userMoved = true;
+      clearTimeout(this._recenterTimer);
+      this._recenterTimer = null;
+      if (this._autoCenterEnabled) {
+        this._recenterTimer = setTimeout(() => {
+          this._userMoved = false;
+          this._recenterTimer = null;
+        }, this._recenterDelayS * 1000);
+      }
     });
   },
 
@@ -343,6 +366,30 @@ const GameMap = {
     } else {
       this._playerMarker.setLngLat([lon, lat]);
     }
+    if (this._autoCenterEnabled && !this._userMoved && this.map) {
+      this.map.easeTo({ center: [lon, lat], duration: 500 });
+    }
+  },
+
+  /**
+   * Enable or disable automatic map centering on the player's position.
+   * @param {boolean} enabled - Whether auto-center should be active.
+   */
+  setAutoCenter(enabled) {
+    this._autoCenterEnabled = enabled;
+    if (!enabled) {
+      clearTimeout(this._recenterTimer);
+      this._recenterTimer = null;
+      this._userMoved = false;
+    }
+  },
+
+  /**
+   * Set the delay before auto-center resumes after the user pans the map.
+   * @param {number} seconds - Delay in seconds.
+   */
+  setRecenterDelay(seconds) {
+    this._recenterDelayS = seconds;
   },
 
   /**
@@ -455,6 +502,18 @@ const GameMap = {
     this._useOSM = !this._useOSM;
     if (this.map) this._toggleBaseMap(this.map, this._useOSM);
     return this._useOSM;
+  },
+
+  /**
+   * Set the game map basemap to a specific state.
+   * Safe to call before map style is loaded — waits for _mapReady.
+   * @param {boolean} useOSM - Whether to use OSM raster tiles.
+   */
+  setGameBaseMap(useOSM) {
+    this._useOSM = useOSM;
+    if (this.map && this._mapReady) {
+      this._mapReady.then(() => this._toggleBaseMap(this.map, useOSM));
+    }
   },
 
   /**
