@@ -350,7 +350,7 @@ const GameMap = {
    * @param {string|null} cellId - Cell being occupied, or null.
    */
   highlightCurrentCell(cellId) {
-    if (!this.map || !this._cellIdToIdx) return;
+    if (!this.map || !this._cellIdToIdx || !this.map.getSource(this._gridSourceId)) return;
 
     // Remove highlight from previous cell
     if (this._currentCellId !== null) {
