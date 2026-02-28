@@ -21,7 +21,11 @@ const App = {
     autoCenterEnabled: true,
     recenterDelayS: 15,
     mapStyleOSM: false,
+    wakeLockEnabled: true,
   },
+
+  /** Screen Wake Lock sentinel (non-null while lock is held). */
+  _wakeLock: null,
 
   /** Auth state. */
   authState: {
@@ -84,6 +88,7 @@ const App = {
       settingsRecenterDelay: document.getElementById('settings-recenter-delay'),
       settingsRecenterDelayRow: document.getElementById('settings-recenter-delay-row'),
       settingsMapStyle: document.getElementById('settings-map-style'),
+      settingsWakeLock: document.getElementById('settings-wake-lock'),
       settingsSaveBtn: document.getElementById('settings-save-btn'),
       settingsCancelBtn: document.getElementById('settings-cancel-btn'),
       // Auth elements
@@ -137,6 +142,12 @@ const App = {
     this.els.authForm.addEventListener('submit', (e) => this.onAuthSubmit(e));
     this.els.authCancelBtn.addEventListener('click', () => this.hideAuthModal());
 
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && this.state.gameId) {
+        this._acquireWakeLock();
+      }
+    });
+
     this.loadSettings();
     await this.checkAuth();
     await this.loadLobby();
@@ -150,6 +161,8 @@ const App = {
     if (delay !== null) this.settings.recenterDelayS = parseInt(delay, 10);
     const osm = localStorage.getItem('settings_mapStyleOSM');
     if (osm !== null) this.settings.mapStyleOSM = osm === 'true';
+    const wl = localStorage.getItem('settings_wakeLockEnabled');
+    if (wl !== null) this.settings.wakeLockEnabled = wl === 'true';
   },
 
   /** Persist settings to localStorage. */
@@ -157,6 +170,7 @@ const App = {
     localStorage.setItem('settings_autoCenterEnabled', this.settings.autoCenterEnabled);
     localStorage.setItem('settings_recenterDelayS', this.settings.recenterDelayS);
     localStorage.setItem('settings_mapStyleOSM', this.settings.mapStyleOSM);
+    localStorage.setItem('settings_wakeLockEnabled', this.settings.wakeLockEnabled);
   },
 
   /** Apply current settings to the map and sync UI. */
@@ -165,6 +179,39 @@ const App = {
     GameMap.setRecenterDelay(this.settings.recenterDelayS);
     GameMap.setGameBaseMap(this.settings.mapStyleOSM);
     this._updateLayerBtn();
+    if (this.state.gameId) {
+      if (this.settings.wakeLockEnabled) {
+        this._acquireWakeLock();
+      } else {
+        this._releaseWakeLock();
+      }
+    }
+  },
+
+  /** Request a Screen Wake Lock if supported and setting is enabled. */
+  async _acquireWakeLock() {
+    if (!this.settings.wakeLockEnabled) return;
+    if (!('wakeLock' in navigator)) return;
+    if (this._wakeLock) return;
+    try {
+      this._wakeLock = await navigator.wakeLock.request('screen');
+      this._wakeLock.addEventListener('release', () => {
+        this._wakeLock = null;
+      });
+    } catch {
+      // Wake lock may be denied (e.g. low battery); non-critical.
+    }
+  },
+
+  /** Release the Screen Wake Lock if held. */
+  async _releaseWakeLock() {
+    if (!this._wakeLock) return;
+    try {
+      await this._wakeLock.release();
+    } catch {
+      // Ignore errors on release.
+    }
+    this._wakeLock = null;
   },
 
   /** Update the layer button label to reflect current map style. */
@@ -180,6 +227,7 @@ const App = {
     this.els.settingsRecenterDelay.value = this.settings.recenterDelayS;
     this.els.settingsRecenterDelayRow.style.display = this.settings.autoCenterEnabled ? '' : 'none';
     this.els.settingsMapStyle.checked = this.settings.mapStyleOSM;
+    this.els.settingsWakeLock.checked = this.settings.wakeLockEnabled;
     this.els.settingsModal.style.display = '';
   },
 
@@ -193,6 +241,7 @@ const App = {
     this.settings.autoCenterEnabled = this.els.settingsAutoCenter.checked;
     this.settings.recenterDelayS = parseInt(this.els.settingsRecenterDelay.value, 10) || 15;
     this.settings.mapStyleOSM = this.els.settingsMapStyle.checked;
+    this.settings.wakeLockEnabled = this.els.settingsWakeLock.checked;
     this.saveSettings();
     this.applySettings();
     this.closeSettingsModal();
@@ -590,6 +639,8 @@ const App = {
       (lat, lon, accuracy) => this.onPositionUpdate(lat, lon, accuracy),
       (errMsg) => { this.els.cellStatus.textContent = errMsg; }
     );
+
+    this._acquireWakeLock();
   },
 
   /** Update the board name display in HUD. */
@@ -731,6 +782,7 @@ const App = {
 
   /** Pause the game — stop GPS and show pause modal. */
   onPauseGame() {
+    this._releaseWakeLock();
     GPS.stop();
     if (this.state.dwellTimer) {
       clearTimeout(this.state.dwellTimer);
@@ -757,6 +809,7 @@ const App = {
       (lat, lon, accuracy) => this.onPositionUpdate(lat, lon, accuracy),
       (errMsg) => { this.els.cellStatus.textContent = errMsg; }
     );
+    this._acquireWakeLock();
   },
 
   /** Go back to lobby without finishing — game stays active. */
@@ -773,6 +826,7 @@ const App = {
       const result = await API.finishGame(this.state.gameId);
 
       GPS.stop();
+      this._releaseWakeLock();
       this.els.pauseModal.style.display = 'none';
 
       this.els.resultNickname.textContent = result.nickname;
@@ -791,6 +845,7 @@ const App = {
   /** Reset state and go back to the lobby screen. */
   onNewGame() {
     GPS.stop();
+    this._releaseWakeLock();
     GameMap.destroy();
     if (this.state.dwellTimer) clearTimeout(this.state.dwellTimer);
     if (this.state.countdownInterval) clearInterval(this.state.countdownInterval);
