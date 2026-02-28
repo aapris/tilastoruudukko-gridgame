@@ -151,10 +151,11 @@ class StatisticalGridProvider(GridProvider):
         self.cell_size = _STAT_GRID_SIZES[grid_size]
 
     def get_cells_in_polygon(self, polygon_4326: Polygon) -> tuple[dict, int]:
-        """Return statistical grid cells within a polygon as GeoJSON.
+        """Return statistical grid cells intersecting a polygon as GeoJSON.
 
-        Iterates over candidate grid cells whose centroid falls within the
-        polygon. Geometry is computed from grid alignment, not from DB.
+        Iterates over candidate grid cells and includes any cell that even
+        partially overlaps the polygon. This ensures border cells are included
+        and can be manually disabled in the editor if needed.
 
         Args:
             polygon_4326: Polygon geometry in EPSG:4326.
@@ -165,7 +166,6 @@ class StatisticalGridProvider(GridProvider):
         polygon_3067 = polygon_4326.transform(3067, clone=True)
         bbox = polygon_3067.extent  # (xmin, ymin, xmax, ymax) = (min_e, min_n, max_e, max_n)
         size = self.cell_size
-        half = size / 2
 
         # Clamp to Finland bounding box
         min_e = max(bbox[0], _FINLAND_BBOX_3067[0])
@@ -182,16 +182,15 @@ class StatisticalGridProvider(GridProvider):
         features = []
         for e in range(start_e, end_e, size):
             for n in range(start_n, end_n, size):
-                # Check if centroid falls within the polygon
-                centroid = Point(e + half, n + half, srid=3067)
-                if not polygon_3067.contains(centroid):
-                    continue
-
-                cell_id = f"{self.grid_size}N{n}E{e}"
                 cell_poly_3067 = Polygon(
                     ((e, n), (e + size, n), (e + size, n + size), (e, n + size), (e, n)),
                     srid=3067,
                 )
+                # Include cell if it intersects the polygon at all
+                if not polygon_3067.intersects(cell_poly_3067):
+                    continue
+
+                cell_id = f"{self.grid_size}N{n}E{e}"
                 cell_poly_4326 = cell_poly_3067.transform(4326, clone=True)
                 features.append(
                     {
@@ -237,15 +236,15 @@ class StatisticalGridProvider(GridProvider):
     def validate_cell_in_polygon(self, polygon_4326: Polygon, cell_id: str) -> bool:
         """Verify a cell belongs to the play area defined by a polygon.
 
-        Parses the cell_id to extract coordinates, computes the centroid,
-        and checks if it falls within the polygon.
+        Parses the cell_id to extract coordinates, builds the cell polygon,
+        and checks if it intersects the area polygon.
 
         Args:
             polygon_4326: Polygon geometry in EPSG:4326.
             cell_id: The grid_inspire identifier to check.
 
         Returns:
-            True if the cell's centroid is within the polygon.
+            True if the cell intersects the polygon.
         """
         parsed = _parse_grid_inspire(cell_id)
         if not parsed:
@@ -256,20 +255,20 @@ class StatisticalGridProvider(GridProvider):
             return False
 
         size = self.cell_size
-        half = size / 2
-        centroid_e = e + half
-        centroid_n = n + half
 
         # Quick check: within Finland bounding box
         if not (
-            _FINLAND_BBOX_3067[0] <= centroid_e <= _FINLAND_BBOX_3067[2]
-            and _FINLAND_BBOX_3067[1] <= centroid_n <= _FINLAND_BBOX_3067[3]
+            _FINLAND_BBOX_3067[0] <= e <= _FINLAND_BBOX_3067[2]
+            and _FINLAND_BBOX_3067[1] <= n <= _FINLAND_BBOX_3067[3]
         ):
             return False
 
         polygon_3067 = polygon_4326.transform(3067, clone=True)
-        centroid = Point(centroid_e, centroid_n, srid=3067)
-        return polygon_3067.contains(centroid)
+        cell_poly = Polygon(
+            ((e, n), (e + size, n), (e + size, n + size), (e, n + size), (e, n)),
+            srid=3067,
+        )
+        return polygon_3067.intersects(cell_poly)
 
 
 # H3 resolution to approximate edge length in meters
