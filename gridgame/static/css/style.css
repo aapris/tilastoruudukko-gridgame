@@ -338,6 +338,67 @@ button:disabled {
   max-width: 300px;
 }
 
+/* Auth bar */
+#auth-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  min-height: 2rem;
+}
+
+#auth-user {
+  font-size: 0.85rem;
+  color: #4CAF50;
+  font-weight: 600;
+}
+
+.auth-btn {
+  width: auto;
+  margin: 0;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  background: #333;
+  border-radius: 4px;
+}
+
+.auth-btn:active {
+  background: #555;
+}
+
+/* Auth modal form */
+#auth-form label {
+  display: block;
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.85rem;
+  color: #aaa;
+}
+
+#auth-form input {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: #16213e;
+  color: #eee;
+  font-size: 1rem;
+}
+
+#auth-form input:focus {
+  outline: none;
+  border-color: #4CAF50;
+}
+
+#auth-submit-btn {
+  margin-top: 1rem;
+}
+
+#auth-cancel-btn {
+  margin-top: 0.5rem;
+}
+
 /* Lobby screen */
 #lobby-screen {
   flex-direction: column;

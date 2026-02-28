@@ -14,6 +14,12 @@
   <!-- Lobby screen -->
   <div id="lobby-screen" class="screen active">
     <div class="lobby-container">
+      <div id="auth-bar">
+        <span id="auth-user"></span>
+        <button id="auth-login-btn" class="auth-btn" style="display:none">Log in</button>
+        <button id="auth-register-btn" class="auth-btn" style="display:none">Register</button>
+        <button id="auth-logout-btn" class="auth-btn" style="display:none">Log out</button>
+      </div>
       <h1>Grid Game</h1>
       <p class="subtitle">Visit as many grid cells as you can!</p>
 
@@ -124,6 +130,22 @@
       <p class="big-pct"><span id="result-pct">0.0</span>%</p>
       <p>Time: <span id="result-time"></span></p>
       <button id="new-game-btn">New Game</button>
+    </div>
+  </div>
+
+  <!-- Auth modal -->
+  <div id="auth-modal" class="modal-overlay" style="display:none">
+    <div class="modal-content">
+      <h2 id="auth-modal-title">Log in</h2>
+      <form id="auth-form">
+        <label for="auth-username">Username</label>
+        <input type="text" id="auth-username" required maxlength="150" autocomplete="username">
+        <label for="auth-password">Password</label>
+        <input type="password" id="auth-password" required minlength="8" autocomplete="current-password">
+        <button type="submit" id="auth-submit-btn">Log in</button>
+      </form>
+      <button id="auth-cancel-btn" class="modal-btn modal-btn-secondary">Cancel</button>
+      <p id="auth-error" class="status-msg"></p>
     </div>
   </div>
 

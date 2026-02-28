@@ -2,8 +2,23 @@
 
 from django.contrib import admin
 from django.contrib.auth import views as auth_views
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import render
 from django.urls import include, path
-from django.views.generic import TemplateView
+from django.views.decorators.csrf import ensure_csrf_cookie
+
+
+@ensure_csrf_cookie
+def index_view(request: HttpRequest) -> HttpResponse:
+    """Serve the main SPA shell with CSRF cookie set.
+
+    Args:
+        request: Django HTTP request.
+
+    Returns:
+        Rendered index.html template.
+    """
+    return render(request, "index.html")
 
 
 urlpatterns = [
@@ -12,5 +27,5 @@ urlpatterns = [
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("editor/", include("game.editor_urls")),
     path("api/", include("game.urls")),
-    path("", TemplateView.as_view(template_name="index.html"), name="index"),
+    path("", index_view, name="index"),
 ]

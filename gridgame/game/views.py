@@ -4,6 +4,7 @@ from django.contrib.gis.geos import Point
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -20,22 +21,29 @@ from game.serializers import (
 
 
 class ListGamesView(APIView):
-    """List games for a player token."""
+    """List games for an authenticated user or player token."""
+
+    authentication_classes = [SessionAuthentication]
 
     def get(self, request: Request) -> Response:
         """Handle GET request to list player's games.
 
+        If authenticated, returns games linked to the user.
+        Otherwise falls back to X-Player-Token header.
+
         Args:
-            request: DRF request with X-Player-Token header.
+            request: DRF request.
 
         Returns:
             Response with list of games.
         """
-        player_token = request.headers.get("X-Player-Token")
-        if not player_token:
-            return Response({"error": "X-Player-Token header is required."}, status=status.HTTP_400_BAD_REQUEST)
-
-        games = Game.objects.filter(player_token=player_token)
+        if request.user.is_authenticated:
+            games = Game.objects.filter(user=request.user)
+        else:
+            player_token = request.headers.get("X-Player-Token")
+            if not player_token:
+                return Response({"error": "X-Player-Token header is required."}, status=status.HTTP_400_BAD_REQUEST)
+            games = Game.objects.filter(player_token=player_token)
 
         status_filter = request.query_params.get("status")
         if status_filter == "active":
@@ -67,10 +75,13 @@ class BoardListView(APIView):
 class CreateGameView(APIView):
     """Create a new game session."""
 
+    authentication_classes = [SessionAuthentication]
+
     def post(self, request: Request) -> Response:
         """Handle POST request to create a game.
 
         Supports two modes: board-based (board_id) or radius-based (center + radius).
+        If authenticated, links the game to the user.
 
         Args:
             request: DRF request with game creation data.
@@ -85,6 +96,8 @@ class CreateGameView(APIView):
         player_token = request.headers.get("X-Player-Token")
         if not player_token:
             return Response({"error": "X-Player-Token header is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user if request.user.is_authenticated else None
 
         board_id = data.get("board_id")
 
@@ -113,6 +126,7 @@ class CreateGameView(APIView):
 
             game = Game.objects.create(
                 player_token=player_token,
+                user=user,
                 nickname=data["nickname"],
                 grid_type=grid_type,
                 board=board,
@@ -140,6 +154,7 @@ class CreateGameView(APIView):
 
             game = Game.objects.create(
                 player_token=player_token,
+                user=user,
                 nickname=data["nickname"],
                 center=center,
                 radius_m=data["radius_m"],
@@ -317,26 +332,29 @@ class FinishGameView(APIView):
 class DeleteGameView(APIView):
     """Delete a game and all its visits."""
 
+    authentication_classes = [SessionAuthentication]
+
     def delete(self, request: Request, game_id: str) -> Response:
         """Handle DELETE request to remove a game.
 
-        Verifies player token ownership before deletion.
+        Verifies ownership via authenticated user or player token.
 
         Args:
-            request: DRF request with X-Player-Token header.
+            request: DRF request.
             game_id: UUID of the game.
 
         Returns:
             Response with 204 No Content on success.
         """
-        player_token = request.headers.get("X-Player-Token")
-        if not player_token:
-            return Response({"error": "X-Player-Token header is required."}, status=status.HTTP_400_BAD_REQUEST)
-
         game = get_object_or_404(Game, pk=game_id)
 
-        if str(game.player_token) != player_token:
-            return Response({"error": "Not your game."}, status=status.HTTP_403_FORBIDDEN)
+        if request.user.is_authenticated and game.user == request.user:
+            game.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
-        game.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        player_token = request.headers.get("X-Player-Token")
+        if player_token and str(game.player_token) == player_token:
+            game.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        return Response({"error": "Not your game."}, status=status.HTTP_403_FORBIDDEN)

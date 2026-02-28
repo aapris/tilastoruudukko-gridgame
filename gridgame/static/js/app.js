@@ -16,6 +16,12 @@ const App = {
     boardName: null,
   },
 
+  /** Auth state. */
+  authState: {
+    authenticated: false,
+    username: null,
+  },
+
   /** Cached boards list. */
   boards: [],
 
@@ -64,6 +70,20 @@ const App = {
       resultPct: document.getElementById('result-pct'),
       resultTime: document.getElementById('result-time'),
       newGameBtn: document.getElementById('new-game-btn'),
+      // Auth elements
+      authBar: document.getElementById('auth-bar'),
+      authUser: document.getElementById('auth-user'),
+      authLoginBtn: document.getElementById('auth-login-btn'),
+      authRegisterBtn: document.getElementById('auth-register-btn'),
+      authLogoutBtn: document.getElementById('auth-logout-btn'),
+      authModal: document.getElementById('auth-modal'),
+      authModalTitle: document.getElementById('auth-modal-title'),
+      authForm: document.getElementById('auth-form'),
+      authUsername: document.getElementById('auth-username'),
+      authPassword: document.getElementById('auth-password'),
+      authSubmitBtn: document.getElementById('auth-submit-btn'),
+      authCancelBtn: document.getElementById('auth-cancel-btn'),
+      authError: document.getElementById('auth-error'),
     };
 
     this.els.lobbyNewGameBtn.addEventListener('click', () => this.onLobbyNewGame());
@@ -86,7 +106,116 @@ const App = {
     this.els.pauseFinishBtn.addEventListener('click', () => this.onFinishGame());
     this.els.newGameBtn.addEventListener('click', () => this.onNewGame());
 
+    // Auth event listeners
+    this.els.authLoginBtn.addEventListener('click', () => this.showAuthModal('login'));
+    this.els.authRegisterBtn.addEventListener('click', () => this.showAuthModal('register'));
+    this.els.authLogoutBtn.addEventListener('click', () => this.onLogout());
+    this.els.authForm.addEventListener('submit', (e) => this.onAuthSubmit(e));
+    this.els.authCancelBtn.addEventListener('click', () => this.hideAuthModal());
+
+    await this.checkAuth();
     await this.loadLobby();
+  },
+
+  /** Check authentication status and update UI. */
+  async checkAuth() {
+    try {
+      const status = await API.authStatus();
+      this.authState = status;
+    } catch {
+      this.authState = { authenticated: false, username: null };
+    }
+    this.updateAuthBar();
+  },
+
+  /** Update the auth bar in the lobby header. */
+  updateAuthBar() {
+    if (this.authState.authenticated) {
+      this.els.authUser.textContent = this.authState.username;
+      this.els.authLoginBtn.style.display = 'none';
+      this.els.authRegisterBtn.style.display = 'none';
+      this.els.authLogoutBtn.style.display = '';
+    } else {
+      this.els.authUser.textContent = '';
+      this.els.authLoginBtn.style.display = '';
+      this.els.authRegisterBtn.style.display = '';
+      this.els.authLogoutBtn.style.display = 'none';
+    }
+  },
+
+  /**
+   * Show the auth modal in login or register mode.
+   * @param {string} mode - "login" or "register".
+   */
+  showAuthModal(mode) {
+    this._authMode = mode;
+    this.els.authModalTitle.textContent = mode === 'login' ? 'Log in' : 'Register';
+    this.els.authSubmitBtn.textContent = mode === 'login' ? 'Log in' : 'Register';
+    this.els.authPassword.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+    this.els.authUsername.value = '';
+    this.els.authPassword.value = '';
+    this.els.authError.textContent = '';
+    this.els.authModal.style.display = '';
+  },
+
+  /** Hide the auth modal. */
+  hideAuthModal() {
+    this.els.authModal.style.display = 'none';
+  },
+
+  /**
+   * Handle auth form submission (login or register).
+   * @param {Event} e - Submit event.
+   */
+  async onAuthSubmit(e) {
+    e.preventDefault();
+    this.els.authSubmitBtn.disabled = true;
+    this.els.authError.textContent = '';
+
+    const username = this.els.authUsername.value.trim();
+    const password = this.els.authPassword.value;
+
+    try {
+      if (this._authMode === 'register') {
+        await API.register(username, password);
+      } else {
+        await API.login(username, password);
+      }
+
+      this.hideAuthModal();
+      await this.checkAuth();
+      await this.offerClaimGames();
+      await this.loadLobby();
+    } catch (err) {
+      this.els.authError.textContent = err.message;
+    } finally {
+      this.els.authSubmitBtn.disabled = false;
+    }
+  },
+
+  /** Logout and reload lobby. */
+  async onLogout() {
+    try {
+      await API.logout();
+    } catch {
+      // ignore
+    }
+    await this.checkAuth();
+    await this.loadLobby();
+  },
+
+  /** After login, offer to claim anonymous games from this device. */
+  async offerClaimGames() {
+    if (!this.authState.authenticated) return;
+
+    try {
+      const result = await API.claimGames();
+      if (result.claimed > 0) {
+        this.els.lobbyStatus.textContent = `${result.claimed} game(s) linked to your account.`;
+      }
+    } catch {
+      // non-critical, ignore
+    }
   },
 
   /**

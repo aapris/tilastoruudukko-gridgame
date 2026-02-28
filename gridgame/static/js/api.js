@@ -19,14 +19,28 @@ const API = {
   },
 
   /**
+   * Read the CSRF token from Django's csrftoken cookie.
+   * @returns {string|null} CSRF token or null.
+   */
+  _getCsrfToken() {
+    const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]*)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  },
+
+  /**
    * Build common headers for all requests.
    * @returns {Object} Headers object.
    */
   _headers() {
-    return {
+    const headers = {
       'Content-Type': 'application/json',
       'X-Player-Token': this.getPlayerToken(),
     };
+    const csrf = this._getCsrfToken();
+    if (csrf) {
+      headers['X-CSRFToken'] = csrf;
+    }
+    return headers;
   },
 
   /**
@@ -143,5 +157,81 @@ const API = {
       headers: this._headers(),
     });
     if (!resp.ok) throw new Error('Failed to delete game');
+  },
+
+  // --- Auth endpoints ---
+
+  /**
+   * Check authentication status.
+   * @returns {Promise<Object>} {authenticated, username}
+   */
+  async authStatus() {
+    const resp = await fetch(`${this.baseUrl}/auth/status/`, {
+      headers: this._headers(),
+    });
+    if (!resp.ok) throw new Error('Failed to check auth status');
+    return resp.json();
+  },
+
+  /**
+   * Register a new user.
+   * @param {string} username
+   * @param {string} password
+   * @returns {Promise<Object>} {authenticated, username} or error.
+   */
+  async register(username, password) {
+    const resp = await fetch(`${this.baseUrl}/auth/register/`, {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Registration failed');
+    return data;
+  },
+
+  /**
+   * Login with credentials.
+   * @param {string} username
+   * @param {string} password
+   * @returns {Promise<Object>} {authenticated, username} or error.
+   */
+  async login(username, password) {
+    const resp = await fetch(`${this.baseUrl}/auth/login/`, {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Login failed');
+    return data;
+  },
+
+  /**
+   * Logout.
+   * @returns {Promise<Object>}
+   */
+  async logout() {
+    const resp = await fetch(`${this.baseUrl}/auth/logout/`, {
+      method: 'POST',
+      headers: this._headers(),
+    });
+    if (!resp.ok) throw new Error('Logout failed');
+    return resp.json();
+  },
+
+  /**
+   * Claim anonymous games for the authenticated user.
+   * @returns {Promise<Object>} {claimed: number}
+   */
+  async claimGames() {
+    const resp = await fetch(`${this.baseUrl}/auth/claim/`, {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify({ player_token: this.getPlayerToken() }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Claim failed');
+    return data;
   },
 };
