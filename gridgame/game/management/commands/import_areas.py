@@ -95,6 +95,13 @@ class Command(BaseCommand):
             help="GeoJSON property to use as the area name",
         )
         parser.add_argument(
+            "--name-extra",
+            required=False,
+            default="",
+            type=str,
+            help="Extra text to add to the area name (after the name property)",
+        )
+        parser.add_argument(
             "--clear",
             action="store_true",
             help="Delete all existing areas before importing",
@@ -108,6 +115,7 @@ class Command(BaseCommand):
         """
         file_path: Path = options["file"]
         name_property: str = options["name_property"]
+        name_extra: str = options.get("name_extra", "")
         clear: bool = options["clear"]
 
         if not file_path.exists():
@@ -140,6 +148,11 @@ class Command(BaseCommand):
                 skipped += 1
                 logger.warning("Skipping feature missing '%s' property", name_property)
                 continue
+
+            name = name.title().strip()
+
+            if name_extra:
+                name += f" ({name_extra})"
 
             geometry = feature.get("geometry")
             if not geometry:
