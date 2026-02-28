@@ -8,9 +8,25 @@ from game.models import GRID_TYPE_CHOICES, Board, Game, Visit
 class BoardSerializer(serializers.ModelSerializer):
     """Serializer for listing available boards."""
 
+    distance_m = serializers.SerializerMethodField()
+
     class Meta:
         model = Board
-        fields = ["id", "name", "description", "grid_type"]
+        fields = ["id", "name", "description", "grid_type", "distance_m"]
+
+    def get_distance_m(self, obj: Board) -> float | None:
+        """Return distance in meters if annotated, otherwise None.
+
+        Args:
+            obj: Board instance, possibly with distance_m annotation.
+
+        Returns:
+            Distance in meters or None.
+        """
+        dist = getattr(obj, "distance_m", None)
+        if dist is None:
+            return None
+        return dist.m
 
 
 class CreateGameSerializer(serializers.Serializer):

@@ -1,5 +1,6 @@
 """API views for the grid game."""
 
+from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.geos import Point
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -56,10 +57,17 @@ class ListGamesView(APIView):
 
 
 class BoardListView(APIView):
-    """List active game boards."""
+    """List active game boards, optionally ordered by distance from a point."""
+
+    MAX_NEARBY_BOARDS = 10
 
     def get(self, request: Request) -> Response:
         """Handle GET request to list active boards.
+
+        Accepts optional query parameters ``lat`` and ``lon`` to order boards
+        by distance from the user's location to the nearest edge of the board's
+        area geometry. When coordinates are provided, results are limited to
+        the closest MAX_NEARBY_BOARDS boards.
 
         Args:
             request: DRF request.
@@ -68,6 +76,24 @@ class BoardListView(APIView):
             Response with list of active boards.
         """
         boards = Board.objects.filter(is_active=True).select_related("area")
+
+        lat = request.query_params.get("lat")
+        lon = request.query_params.get("lon")
+
+        if lat is not None and lon is not None:
+            try:
+                user_point = Point(float(lon), float(lat), srid=4326)
+            except (ValueError, TypeError):
+                return Response(
+                    {"error": "Invalid lat/lon values."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            boards = (
+                boards.annotate(distance_m=Distance("area__geometry", user_point))
+                .order_by("distance_m")[:self.MAX_NEARBY_BOARDS]
+            )
+
         serializer = BoardSerializer(boards, many=True)
         return Response(serializer.data)
 

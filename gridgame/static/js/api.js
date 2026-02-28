@@ -44,11 +44,17 @@ const API = {
   },
 
   /**
-   * List active game boards.
+   * List active game boards, optionally sorted by distance.
+   * @param {number|null} lat - User latitude for distance sorting.
+   * @param {number|null} lon - User longitude for distance sorting.
    * @returns {Promise<Array>} List of board objects.
    */
-  async listBoards() {
-    const resp = await fetch(`${this.baseUrl}/boards/`, {
+  async listBoards(lat = null, lon = null) {
+    let url = `${this.baseUrl}/boards/`;
+    if (lat !== null && lon !== null) {
+      url += `?lat=${lat}&lon=${lon}`;
+    }
+    const resp = await fetch(url, {
       headers: this._headers(),
     });
     if (!resp.ok) throw new Error('Failed to list boards');

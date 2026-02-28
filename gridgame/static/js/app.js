@@ -293,12 +293,28 @@ const App = {
     }
   },
 
-  /** Navigate from lobby to setup screen, fetching boards. */
+  /** Navigate from lobby to setup screen, fetching boards sorted by distance. */
   async onLobbyNewGame() {
     this.showScreen('setup-screen');
 
+    // Get user position for distance-based board sorting
+    let lat = null;
+    let lon = null;
     try {
-      this.boards = await API.listBoards();
+      const pos = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: false,
+          timeout: 5000,
+        });
+      });
+      lat = pos.coords.latitude;
+      lon = pos.coords.longitude;
+    } catch {
+      // GPS unavailable — boards will be listed without distance sorting
+    }
+
+    try {
+      this.boards = await API.listBoards(lat, lon);
     } catch {
       this.boards = [];
     }
@@ -309,7 +325,19 @@ const App = {
     for (const board of this.boards) {
       const opt = document.createElement('option');
       opt.value = board.id;
-      opt.textContent = `${board.name} (${board.grid_type.replace('stat_', '').replace('h3_res', 'H3 r')})`;
+      const gridLabel = board.grid_type.replace('stat_', '').replace('h3_res', 'H3 r');
+      let label = `${board.name} (${gridLabel})`;
+      if (board.distance_m !== null && board.distance_m !== undefined) {
+        const dist = board.distance_m;
+        if (dist < 1) {
+          label += ' — inside';
+        } else if (dist < 1000) {
+          label += ` — ${Math.round(dist)} m`;
+        } else {
+          label += ` — ${(dist / 1000).toFixed(1)} km`;
+        }
+      }
+      opt.textContent = label;
       sel.appendChild(opt);
     }
 
