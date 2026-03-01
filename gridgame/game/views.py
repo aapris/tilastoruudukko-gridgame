@@ -52,6 +52,15 @@ class ListGamesView(APIView):
         elif status_filter == "finished":
             games = games.filter(finished_at__isnull=False)
 
+        lat = request.query_params.get("lat")
+        lon = request.query_params.get("lon")
+        if lat is not None and lon is not None:
+            try:
+                user_point = Point(float(lon), float(lat), srid=4326)
+                games = games.annotate(distance_m=Distance("play_area", user_point)).order_by("distance_m")
+            except (ValueError, TypeError):
+                pass  # fall back to default ordering
+
         serializer = GameListSerializer(games, many=True)
         return Response(serializer.data)
 

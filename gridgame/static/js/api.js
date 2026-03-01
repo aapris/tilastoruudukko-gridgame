@@ -64,11 +64,19 @@ const API = {
   /**
    * List games for the current player.
    * @param {string} [statusFilter] - "active" or "finished", or omit for all.
+   * @param {number|null} [lat] - User latitude for distance sorting.
+   * @param {number|null} [lon] - User longitude for distance sorting.
    * @returns {Promise<Array>} List of game summaries.
    */
-  async listGames(statusFilter) {
-    const params = statusFilter ? `?status=${statusFilter}` : '';
-    const resp = await fetch(`${this.baseUrl}/games/list/${params}`, {
+  async listGames(statusFilter, lat = null, lon = null) {
+    const params = new URLSearchParams();
+    if (statusFilter) params.set('status', statusFilter);
+    if (lat !== null && lon !== null) {
+      params.set('lat', lat);
+      params.set('lon', lon);
+    }
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const resp = await fetch(`${this.baseUrl}/games/list/${qs}`, {
       headers: this._headers(),
     });
     if (!resp.ok) throw new Error('Failed to list games');

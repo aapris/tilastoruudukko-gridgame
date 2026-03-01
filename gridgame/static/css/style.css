@@ -237,6 +237,29 @@ button:disabled {
   white-space: nowrap;
 }
 
+#outside-grid-bar {
+  font-size: 0.85rem;
+  color: #ff9800;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.status-link-btn {
+  display: inline;
+  width: auto;
+  margin: 0;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: #4CAF50;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+.status-link-btn:active {
+  background: #388E3C;
+}
+
 .hud-btn {
   width: auto;
   margin: 0;

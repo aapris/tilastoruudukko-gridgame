@@ -147,6 +147,7 @@ class GameListSerializer(serializers.ModelSerializer):
     visited_count = serializers.SerializerMethodField()
     score_pct = serializers.SerializerMethodField()
     board_name = serializers.SerializerMethodField()
+    distance_m = serializers.SerializerMethodField()
 
     class Meta:
         model = Game
@@ -160,6 +161,7 @@ class GameListSerializer(serializers.ModelSerializer):
             "started_at",
             "finished_at",
             "board_name",
+            "distance_m",
         ]
 
     def get_board_name(self, obj: Game) -> str | None:
@@ -172,6 +174,20 @@ class GameListSerializer(serializers.ModelSerializer):
             Board name or None.
         """
         return obj.board.name if obj.board else None
+
+    def get_distance_m(self, obj: Game) -> float | None:
+        """Return distance in meters if annotated via distance query, otherwise None.
+
+        Args:
+            obj: Game instance, possibly with distance_m annotation.
+
+        Returns:
+            Distance in meters or None.
+        """
+        dist = getattr(obj, "distance_m", None)
+        if dist is None:
+            return None
+        return dist.m
 
     def get_visited_count(self, obj: Game) -> int:
         """Return the number of unique visited cells.

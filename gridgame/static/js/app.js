@@ -92,6 +92,7 @@ const App = {
       settingsWakeLock: document.getElementById('settings-wake-lock'),
       settingsSaveBtn: document.getElementById('settings-save-btn'),
       settingsCancelBtn: document.getElementById('settings-cancel-btn'),
+      outsideGridBar: document.getElementById('outside-grid-bar'),
       // Auth elements
       authBar: document.getElementById('auth-bar'),
       authUser: document.getElementById('auth-user'),
@@ -136,6 +137,8 @@ const App = {
     this.els.pauseLobbyBtn.addEventListener('click', () => this.onBackToLobby());
     this.els.pauseFinishBtn.addEventListener('click', () => this.onFinishGame());
     this.els.newGameBtn.addEventListener('click', () => this.onNewGame());
+
+    document.getElementById('outside-lobby-btn').addEventListener('click', () => this.onBackToLobby());
 
     // Auth event listeners
     this.els.authLoginBtn.addEventListener('click', () => this.showAuthModal('login'));
@@ -391,9 +394,25 @@ const App = {
   async loadLobby() {
     this.els.lobbyStatus.textContent = 'Loading...';
 
+    // Try to get GPS position for distance-based sorting of active games
+    let lat = null;
+    let lon = null;
+    try {
+      const pos = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: false,
+          timeout: 2000,
+        });
+      });
+      lat = pos.coords.latitude;
+      lon = pos.coords.longitude;
+    } catch {
+      // GPS unavailable or timed out — active games listed without distance sorting
+    }
+
     try {
       const [active, finished] = await Promise.all([
-        API.listGames('active'),
+        API.listGames('active', lat, lon),
         API.listGames('finished'),
       ]);
 
@@ -427,10 +446,22 @@ const App = {
       const gridLabel = game.grid_type.replace('stat_', '').replace('h3_res', 'H3 r');
       const boardLabel = game.board_name ? `${game.board_name} &middot; ` : '';
 
+      let distLabel = '';
+      if (isActive && game.distance_m !== null && game.distance_m !== undefined) {
+        const dist = game.distance_m;
+        if (dist < 1) {
+          distLabel = ' &middot; inside';
+        } else if (dist < 1000) {
+          distLabel = ` &middot; ${Math.round(dist)}\u202fm`;
+        } else {
+          distLabel = ` &middot; ${(dist / 1000).toFixed(1)}\u202fkm`;
+        }
+      }
+
       card.innerHTML = `
         <div class="game-card-info">
           <strong>${game.nickname}</strong>
-          <span class="game-card-meta">${boardLabel}${gridLabel} &middot; ${game.visited_count}/${game.total_cells} (${game.score_pct}%) &middot; ${date}</span>
+          <span class="game-card-meta">${boardLabel}${gridLabel} &middot; ${game.visited_count}/${game.total_cells} (${game.score_pct}%)${distLabel} &middot; ${date}</span>
         </div>
       `;
 
@@ -788,6 +819,7 @@ const App = {
     GameMap.highlightCurrentCell(newCellId);
 
     if (newCellId) {
+      this.els.outsideGridBar.style.display = 'none';
       if (this.state.visitedCells[newCellId]) {
         this.els.cellStatus.textContent = `In cell ${newCellId} (already visited)`;
       } else {
@@ -810,7 +842,8 @@ const App = {
         this.state.minDwellS * 1000
       );
     } else {
-      this.els.cellStatus.textContent = 'Outside grid area';
+      this.els.cellStatus.textContent = '';
+      this.els.outsideGridBar.style.display = '';
     }
   },
 
