@@ -5,9 +5,11 @@ from django.contrib.auth import views as auth_views
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.urls import include, path
+from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 
+@never_cache
 @ensure_csrf_cookie
 def index_view(request: HttpRequest) -> HttpResponse:
     """Serve the main SPA shell with CSRF cookie set.
