@@ -3,7 +3,7 @@
  * Manages a persistent player token in localStorage.
  */
 const API = {
-  baseUrl: '/api',
+  baseUrl: '/api/v1',
 
   /**
    * Get or create a persistent player token.

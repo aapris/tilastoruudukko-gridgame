@@ -26,6 +26,6 @@ urlpatterns = [
     path("login/", auth_views.LoginView.as_view(template_name="login.html"), name="login"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("editor/", include("game.editor_urls")),
-    path("api/", include("game.urls")),
+    path("api/v1/", include("game.urls")),
     path("", index_view, name="index"),
 ]
