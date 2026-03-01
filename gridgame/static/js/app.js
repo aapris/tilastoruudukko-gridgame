@@ -14,6 +14,7 @@ const App = {
     minDwellS: 10,
     totalCells: 0,
     boardName: null,
+    gridType: null,
   },
 
   /** Persistent user settings. */
@@ -722,6 +723,7 @@ const App = {
     this.state.minDwellS = result.min_dwell_s;
     this.state.currentCellId = null;
     this.state.boardName = result.board_name || null;
+    this.state.gridType = result.grid_type || null;
 
     // Restore or initialize visited cells
     this.state.visitedCells = {};
@@ -743,6 +745,7 @@ const App = {
 
     GameMap.init(center.lat, center.lon);
     this.applySettings();
+    GameMap.setReportCounts(result.report_counts || {});
     GameMap.loadGrid(this.state.grid, this.state.visitedCells);
 
     GPS.start(
@@ -974,6 +977,7 @@ const App = {
       minDwellS: 10,
       totalCells: 0,
       boardName: null,
+      gridType: null,
     };
 
     this.els.chooseLocationBtn.disabled = false;

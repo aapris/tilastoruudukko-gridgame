@@ -2,7 +2,7 @@
 
 from rest_framework import serializers
 
-from game.models import GRID_TYPE_CHOICES, Board, Game, Visit
+from game.models import GRID_TYPE_CHOICES, Board, CellReport, Game, Visit
 
 
 class BoardSerializer(serializers.ModelSerializer):
@@ -93,6 +93,7 @@ class GameStateSerializer(serializers.ModelSerializer):
         fields = [
             "game_id",
             "nickname",
+            "grid_type",
             "total_cells",
             "visited_count",
             "score_pct",
@@ -222,3 +223,21 @@ class RecordVisitSerializer(serializers.Serializer):
     exited_at = serializers.DateTimeField()
     lat = serializers.FloatField()
     lon = serializers.FloatField()
+
+
+class CellReportSerializer(serializers.ModelSerializer):
+    """Serializer for cell report creation and display."""
+
+    class Meta:
+        model = CellReport
+        fields = ["id", "cell_id", "grid_type", "reason", "comment", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+
+class CreateCellReportSerializer(serializers.Serializer):
+    """Serializer for cell report creation requests."""
+
+    cell_id = serializers.CharField(max_length=64)
+    grid_type = serializers.ChoiceField(choices=GRID_TYPE_CHOICES)
+    reason = serializers.ChoiceField(choices=CellReport.REASON_CHOICES)
+    comment = serializers.CharField(max_length=200, required=False, default="", allow_blank=True)

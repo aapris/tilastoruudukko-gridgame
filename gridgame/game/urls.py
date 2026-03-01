@@ -13,6 +13,9 @@ urlpatterns = [
     path("games/<uuid:game_id>/visits/", views.RecordVisitView.as_view(), name="record-visit"),
     path("games/<uuid:game_id>/finish/", views.FinishGameView.as_view(), name="finish-game"),
     path("games/<uuid:game_id>/delete/", views.DeleteGameView.as_view(), name="delete-game"),
+    # Cell reports
+    path("cells/report/", views.CellReportView.as_view(), name="cell-report"),
+    path("cells/<str:cell_id>/reports/", views.CellReportsListView.as_view(), name="cell-reports-list"),
     # Auth
     path("auth/status/", auth_views.auth_status, name="auth-status"),
     path("auth/register/", auth_views.auth_register, name="auth-register"),

@@ -173,6 +173,49 @@ const API = {
     if (!resp.ok) throw new Error('Failed to delete game');
   },
 
+  // --- Cell report endpoints ---
+
+  /**
+   * Report a cell as inaccessible (create or update).
+   * @param {string} cellId - Cell identifier.
+   * @param {string} gridType - Grid type (e.g. "stat_1km").
+   * @param {string} reason - Reason code.
+   * @param {string} comment - Optional comment.
+   * @returns {Promise<Object>} Report data with total_reports count.
+   */
+  async reportCell(cellId, gridType, reason, comment = '') {
+    const resp = await fetch(`${this.baseUrl}/cells/report/`, {
+      method: 'POST',
+      headers: this._headers(),
+      body: JSON.stringify({
+        cell_id: cellId,
+        grid_type: gridType,
+        reason,
+        comment,
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || err.error || JSON.stringify(err));
+    }
+    return resp.json();
+  },
+
+  /**
+   * Get reports for a specific cell.
+   * @param {string} cellId - Cell identifier.
+   * @param {string} gridType - Grid type.
+   * @returns {Promise<Object>} Reports data with total_reports and reports array.
+   */
+  async getCellReports(cellId, gridType) {
+    const resp = await fetch(
+      `${this.baseUrl}/cells/${encodeURIComponent(cellId)}/reports/?grid_type=${encodeURIComponent(gridType)}`,
+      { headers: this._headers() }
+    );
+    if (!resp.ok) throw new Error('Failed to get cell reports');
+    return resp.json();
+  },
+
   // --- Auth endpoints ---
 
   /**

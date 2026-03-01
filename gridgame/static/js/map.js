@@ -9,6 +9,8 @@ const GameMap = {
   _visitedCellIds: new Set(),
   _currentCellId: null,
   _useOSM: false,
+  _cellReportCounts: {},   // { cell_id: count }
+  _activePopup: null,
 
   // Picker state
   pickerMap: null,
@@ -282,11 +284,20 @@ const GameMap = {
         type: 'fill',
         source: this._gridSourceId,
         paint: {
-          'fill-color': '#4CAF50',
+          'fill-color': [
+            'case',
+            ['boolean', ['feature-state', 'visited'], false],
+            '#4CAF50',
+            ['boolean', ['feature-state', 'reported'], false],
+            '#f44336',
+            '#4CAF50',
+          ],
           'fill-opacity': [
             'case',
             ['boolean', ['feature-state', 'visited'], false],
             0.5,
+            ['boolean', ['feature-state', 'reported'], false],
+            0.15,
             0,
           ],
         },
@@ -302,18 +313,24 @@ const GameMap = {
             'case',
             ['boolean', ['feature-state', 'current'], false],
             '#FF9800',
+            ['boolean', ['feature-state', 'reported'], false],
+            '#f44336',
             '#2196F3',
           ],
           'line-width': [
             'case',
             ['boolean', ['feature-state', 'current'], false],
             3,
+            ['boolean', ['feature-state', 'reported'], false],
+            2,
             1.5,
           ],
           'line-opacity': [
             'case',
             ['boolean', ['feature-state', 'current'], false],
             1,
+            ['boolean', ['feature-state', 'reported'], false],
+            0.8,
             0.6,
           ],
         },
@@ -330,10 +347,198 @@ const GameMap = {
         }
       }
 
+      // Set initial reported states
+      for (const [cellId, count] of Object.entries(this._cellReportCounts)) {
+        const idx = this._cellIdToIdx[cellId];
+        if (idx !== undefined && count > 0) {
+          this.map.setFeatureState(
+            { source: this._gridSourceId, id: idx },
+            { reported: true }
+          );
+        }
+      }
+
+      // Cell click handler for popup
+      this.map.on('click', 'grid-fill', (e) => this._onCellClick(e));
+      this.map.on('click', 'grid-line', (e) => this._onCellClick(e));
+
+      // Change cursor on hover
+      this.map.on('mouseenter', 'grid-fill', () => {
+        this.map.getCanvas().style.cursor = 'pointer';
+      });
+      this.map.on('mouseleave', 'grid-fill', () => {
+        this.map.getCanvas().style.cursor = '';
+      });
+
       // Fit to grid bounds
       const bbox = turf.bbox(geojson);
       this.map.fitBounds(bbox, { padding: 20 });
     });
+  },
+
+  /**
+   * Set report counts for cells (called when grid data is loaded).
+   * @param {Object} reportCounts - Map of cell_id -> report count.
+   */
+  setReportCounts(reportCounts) {
+    this._cellReportCounts = reportCounts || {};
+  },
+
+  /**
+   * Handle cell click — show info popup.
+   * @param {Object} e - MapLibre click event.
+   */
+  _onCellClick(e) {
+    if (!e.features || e.features.length === 0) return;
+
+    const feature = e.features[0];
+    const cellId = feature.properties.cell_id;
+    const lngLat = e.lngLat;
+
+    // Close existing popup
+    if (this._activePopup) {
+      this._activePopup.remove();
+      this._activePopup = null;
+    }
+
+    const visited = this._visitedCellIds.has(cellId);
+    const reportCount = this._cellReportCounts[cellId] || 0;
+
+    // Build popup content
+    const container = document.createElement('div');
+    container.className = 'cell-popup';
+
+    const title = document.createElement('div');
+    title.className = 'cell-popup-title';
+    title.textContent = cellId;
+    container.appendChild(title);
+
+    if (visited) {
+      const info = document.createElement('div');
+      info.className = 'cell-popup-info';
+      info.textContent = 'Visited';
+      container.appendChild(info);
+    }
+
+    if (reportCount > 0) {
+      const info = document.createElement('div');
+      info.className = 'cell-popup-reports';
+      info.textContent = `${reportCount} report${reportCount !== 1 ? 's' : ''}`;
+      container.appendChild(info);
+    }
+
+    const reportBtn = document.createElement('button');
+    reportBtn.className = 'cell-popup-btn';
+    reportBtn.textContent = reportCount > 0 ? 'Update report' : 'Report inaccessible';
+    reportBtn.addEventListener('click', () => {
+      this._showReportForm(container, cellId);
+    });
+    container.appendChild(reportBtn);
+
+    this._activePopup = new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
+      .setLngLat(lngLat)
+      .setDOMContent(container)
+      .addTo(this.map);
+  },
+
+  /**
+   * Show the report form inside the popup.
+   * @param {HTMLElement} container - Popup container element.
+   * @param {string} cellId - Cell ID being reported.
+   */
+  _showReportForm(container, cellId) {
+    // Replace popup content with form
+    container.innerHTML = '';
+
+    const title = document.createElement('div');
+    title.className = 'cell-popup-title';
+    title.textContent = 'Report inaccessible';
+    container.appendChild(title);
+
+    const form = document.createElement('div');
+    form.className = 'cell-popup-form';
+
+    // Reason select
+    const reasonLabel = document.createElement('label');
+    reasonLabel.textContent = 'Reason';
+    form.appendChild(reasonLabel);
+
+    const reasonSelect = document.createElement('select');
+    reasonSelect.className = 'cell-popup-select';
+    const reasons = [
+      ['dangerous', 'Dangerous'],
+      ['no_ground_access', 'No ground access'],
+      ['closed', 'Closed'],
+      ['restricted', 'Restricted'],
+      ['other', 'Other'],
+    ];
+    for (const [value, label] of reasons) {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = label;
+      reasonSelect.appendChild(opt);
+    }
+    form.appendChild(reasonSelect);
+
+    // Comment textarea
+    const commentLabel = document.createElement('label');
+    commentLabel.textContent = 'Comment (optional)';
+    form.appendChild(commentLabel);
+
+    const commentInput = document.createElement('textarea');
+    commentInput.className = 'cell-popup-textarea';
+    commentInput.maxLength = 200;
+    commentInput.rows = 2;
+    commentInput.placeholder = 'Why is this cell inaccessible?';
+    form.appendChild(commentInput);
+
+    // Submit button
+    const submitBtn = document.createElement('button');
+    submitBtn.className = 'cell-popup-btn cell-popup-btn-submit';
+    submitBtn.textContent = 'Submit';
+    submitBtn.addEventListener('click', async () => {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending...';
+      try {
+        // Get grid_type from the app state
+        const gridType = App.state.gridType;
+        const result = await API.reportCell(cellId, gridType, reasonSelect.value, commentInput.value);
+
+        // Update local report count and feature state
+        this._cellReportCounts[cellId] = result.total_reports;
+        const idx = this._cellIdToIdx[cellId];
+        if (idx !== undefined) {
+          this.map.setFeatureState(
+            { source: this._gridSourceId, id: idx },
+            { reported: true }
+          );
+        }
+
+        // Show success
+        container.innerHTML = '';
+        const msg = document.createElement('div');
+        msg.className = 'cell-popup-info';
+        msg.textContent = 'Report submitted. Thank you!';
+        container.appendChild(msg);
+
+        setTimeout(() => {
+          if (this._activePopup) {
+            this._activePopup.remove();
+            this._activePopup = null;
+          }
+        }, 1500);
+      } catch (err) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit';
+        const errMsg = document.createElement('div');
+        errMsg.className = 'cell-popup-error';
+        errMsg.textContent = err.message;
+        form.appendChild(errMsg);
+      }
+    });
+    form.appendChild(submitBtn);
+
+    container.appendChild(form);
   },
 
   /**

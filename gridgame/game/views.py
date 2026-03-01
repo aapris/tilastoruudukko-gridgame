@@ -2,6 +2,7 @@
 
 from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.geos import Point
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -11,14 +12,36 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from game.grid_providers import get_grid_provider
-from game.models import Board, Game, Visit
+from game.models import Board, CellReport, Game, Visit
 from game.serializers import (
     BoardSerializer,
+    CellReportSerializer,
+    CreateCellReportSerializer,
     CreateGameSerializer,
     GameListSerializer,
     GameStateSerializer,
     RecordVisitSerializer,
 )
+
+
+def _get_report_counts(grid_type: str, cell_ids: list[str]) -> dict[str, int]:
+    """Get report counts for a list of cells.
+
+    Args:
+        grid_type: The grid type to filter reports by.
+        cell_ids: List of cell identifiers to get counts for.
+
+    Returns:
+        Dict mapping cell_id to report count (only cells with reports).
+    """
+    if not cell_ids:
+        return {}
+    counts = (
+        CellReport.objects.filter(grid_type=grid_type, cell_id__in=cell_ids)
+        .values("cell_id")
+        .annotate(count=Count("id"))
+    )
+    return {row["cell_id"]: row["count"] for row in counts}
 
 
 class ListGamesView(APIView):
@@ -98,10 +121,9 @@ class BoardListView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            boards = (
-                boards.annotate(distance_m=Distance("area__geometry", user_point))
-                .order_by("distance_m")[:self.MAX_NEARBY_BOARDS]
-            )
+            boards = boards.annotate(distance_m=Distance("area__geometry", user_point)).order_by("distance_m")[
+                : self.MAX_NEARBY_BOARDS
+            ]
 
         serializer = BoardSerializer(boards, many=True)
         return Response(serializer.data)
@@ -200,6 +222,10 @@ class CreateGameView(APIView):
                 total_cells=total_cells,
             )
 
+        # Get report counts for cells in this game
+        cell_ids = [f["properties"]["cell_id"] for f in grid_geojson["features"]]
+        report_counts = _get_report_counts(game.grid_type, cell_ids)
+
         response_data = {
             "game_id": str(game.id),
             "nickname": game.nickname,
@@ -207,7 +233,9 @@ class CreateGameView(APIView):
             "min_dwell_s": game.min_dwell_s,
             "time_limit_s": game.time_limit_s,
             "started_at": game.started_at.isoformat(),
+            "grid_type": game.grid_type,
             "grid": grid_geojson,
+            "report_counts": report_counts,
         }
 
         if game.board:
@@ -257,6 +285,10 @@ class GameStateView(APIView):
                 )
             data["grid"] = grid_geojson
             data["min_dwell_s"] = game.min_dwell_s
+
+            # Include report counts for cells in the grid
+            cell_ids = [f["properties"]["cell_id"] for f in grid_geojson["features"]]
+            data["report_counts"] = _get_report_counts(game.grid_type, cell_ids)
 
         if game.board:
             data["board_name"] = game.board.name
@@ -393,3 +425,83 @@ class DeleteGameView(APIView):
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         return Response({"error": "Not your game."}, status=status.HTTP_403_FORBIDDEN)
+
+
+class CellReportView(APIView):
+    """Create or update a cell inaccessibility report."""
+
+    authentication_classes = [SessionAuthentication]
+
+    def post(self, request: Request) -> Response:
+        """Handle POST request to report a cell as inaccessible.
+
+        Uses update_or_create so one player can only have one report per cell.
+
+        Args:
+            request: DRF request with report data.
+
+        Returns:
+            Response with report details and total report count.
+        """
+        player_token = request.headers.get("X-Player-Token")
+        if not player_token:
+            return Response({"error": "X-Player-Token header is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = CreateCellReportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        user = request.user if request.user.is_authenticated else None
+
+        report, _created = CellReport.objects.update_or_create(
+            cell_id=data["cell_id"],
+            grid_type=data["grid_type"],
+            player_token=player_token,
+            defaults={
+                "reason": data["reason"],
+                "comment": data["comment"],
+                "user": user,
+            },
+        )
+
+        total_reports = CellReport.objects.filter(
+            cell_id=data["cell_id"],
+            grid_type=data["grid_type"],
+        ).count()
+
+        report_data = CellReportSerializer(report).data
+        report_data["total_reports"] = total_reports
+
+        return Response(report_data, status=status.HTTP_201_CREATED)
+
+
+class CellReportsListView(APIView):
+    """List reports for a specific cell."""
+
+    def get(self, request: Request, cell_id: str) -> Response:
+        """Handle GET request to list reports for a cell.
+
+        Requires grid_type query parameter.
+
+        Args:
+            request: DRF request.
+            cell_id: The cell identifier.
+
+        Returns:
+            Response with list of reports and total count.
+        """
+        grid_type = request.query_params.get("grid_type")
+        if not grid_type:
+            return Response({"error": "grid_type query parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        reports = CellReport.objects.filter(cell_id=cell_id, grid_type=grid_type).order_by("-created_at")
+        serializer = CellReportSerializer(reports, many=True)
+
+        return Response(
+            {
+                "cell_id": cell_id,
+                "grid_type": grid_type,
+                "total_reports": reports.count(),
+                "reports": serializer.data,
+            }
+        )

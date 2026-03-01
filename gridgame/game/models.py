@@ -131,3 +131,35 @@ class Visit(models.Model):
     def __str__(self) -> str:
         """Return a summary of the visit."""
         return f"Visit {self.cell_id} (game {self.game_id})"
+
+
+class CellReport(models.Model):
+    """A player report that a grid cell is inaccessible."""
+
+    REASON_CHOICES = [
+        ("dangerous", "Dangerous"),
+        ("no_ground_access", "No ground access"),
+        ("closed", "Closed"),
+        ("restricted", "Restricted"),
+        ("other", "Other"),
+    ]
+
+    cell_id = models.CharField(max_length=64)
+    grid_type = models.CharField(max_length=16, choices=GRID_TYPE_CHOICES)
+    reason = models.CharField(max_length=32, choices=REASON_CHOICES)
+    comment = models.TextField(blank=True, default="")
+    player_token = models.UUIDField(db_index=True)
+    user = models.ForeignKey("game.User", null=True, blank=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["cell_id", "grid_type", "player_token"],
+                name="unique_report_per_player",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        """Return a summary of the report."""
+        return f"Report {self.cell_id} ({self.reason})"
