@@ -12,16 +12,6 @@ migrate:
 makemigrations:
     uv run python gridgame/manage.py makemigrations
 
-# Load all grid data (5km, 1km, 250m)
-load-grid-all:
-    uv run python gridgame/manage.py load_grid_data --grid-size 5km --file data/raw/hila5km_linkki.csv --clear
-    uv run python gridgame/manage.py load_grid_data --grid-size 1km --file data/raw/hila1km_linkki.csv --clear
-    uv run python gridgame/manage.py load_grid_data --grid-size 250m --file data/raw/hila250m_linkki.csv --clear
-
-# Load only 5km grid data (quick, for testing)
-load-grid-5km:
-    uv run python gridgame/manage.py load_grid_data --grid-size 5km --file data/raw/hila5km_linkki.csv --clear
-
 # Import areas from a GeoJSON file (e.g. just import-areas data/raw/areas.geojson nimi_fi)
 import-areas file name_property:
     uv run python gridgame/manage.py import_areas --file {{ file }} --name-property {{ name_property }}
@@ -68,16 +58,6 @@ docker-migrate:
 # Create migrations in Docker
 docker-makemigrations:
     docker compose exec web uv run python gridgame/manage.py makemigrations
-
-# Load all grid data in Docker
-docker-load-grid-all:
-    docker compose exec web uv run python gridgame/manage.py load_grid_data --grid-size 5km --file data/raw/hila5km_linkki.csv --clear
-    docker compose exec web uv run python gridgame/manage.py load_grid_data --grid-size 1km --file data/raw/hila1km_linkki.csv --clear
-    docker compose exec web uv run python gridgame/manage.py load_grid_data --grid-size 250m --file data/raw/hila250m_linkki.csv --clear
-
-# Load 5km grid data in Docker
-docker-load-grid-5km:
-    docker compose exec web uv run python gridgame/manage.py load_grid_data --grid-size 5km --file data/raw/hila5km_linkki.csv --clear
 
 # Import areas from a GeoJSON file in Docker
 docker-import-areas file name_property:

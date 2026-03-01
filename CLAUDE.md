@@ -2,8 +2,9 @@
 
 ## Overview
 
-A pervasive mobile web game where the player physically visits as many statistical grid cells
-(Tilastokeskus 250m/1km/5km) as possible within a chosen area. Location is verified via GPS.
+A pervasive mobile web game where the player physically visits as many grid cells
+as possible within a chosen area. Supports both Tilastokeskus statistical grids
+(250m/1km/5km) and H3 hexagonal grids (resolutions 6–10). Location is verified via GPS.
 The game runs entirely in a mobile web browser (PWA-ready, no native app).
 
 ---
@@ -12,7 +13,7 @@ The game runs entirely in a mobile web browser (PWA-ready, no native app).
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Django 6.x + GeoDjango + Django REST Framework |
+| Backend | Django 5.x + GeoDjango + Django REST Framework |
 | Database | PostgreSQL + PostGIS |
 | Frontend | Vanilla JS + Leaflet.js + Turf.js |
 | Templates | Django templates (only for initial HTML shell) |
@@ -24,23 +25,55 @@ All javascript, css and other assets are served from Django static files, not fr
 
 ---
 
-## Existing Data
+## Grid System — Virtual Grid Providers
 
-PostGIS database already contains Tilastokeskus statistical grid tables as polygon geometries
-in **EPSG:3067**. Verify exact table and column names before use:
+Grid cells are **not stored in the database**. They are computed on the fly by grid
+providers defined in `game/grid_providers.py`.
 
-```sql
-\d grid_250m   -- check column names, especially the cell identifier column
-\d grid_1km
-\d grid_5km
+### Statistical Grid (Tilastokeskus)
+
+`StatisticalGridProvider` generates rectangular grid cells aligned to EPSG:3067 coordinates.
+Cell identifiers encode the bottom-left corner: `{size}N{northing}E{easting}`,
+e.g. `"250mN667675E38875"`.
+
+Given a polygon (play area), the provider:
+1. Transforms the polygon to EPSG:3067
+2. Iterates over grid-aligned coordinates within the bounding box
+3. Includes any cell that intersects the polygon
+4. Returns GeoJSON in EPSG:4326
+
+### H3 Hexagonal Grid
+
+`H3GridProvider` uses the `h3` library to compute hexagonal cells.
+Cell identifiers are standard H3 cell indexes.
+
+### Provider API
+
+```python
+from game.grid_providers import get_grid_provider
+
+provider = get_grid_provider("stat_1km")  # or "h3_res9", etc.
+geojson, count = provider.get_cells_in_polygon(polygon_4326)
+is_valid = provider.validate_cell_in_polygon(polygon_4326, cell_id)
+feature = provider.cell_id_to_geojson_feature(cell_id)
 ```
 
-If needed, better table structure can be planned and implemented.
+Grid types: `stat_250m`, `stat_1km`, `stat_5km`, `h3_res6`–`h3_res10`.
 
-All API responses must transform geometries to **EPSG:4326** (WGS84) for GeoJSON output:
-```sql
-ST_AsGeoJSON(ST_Transform(geom, 4326))
+---
+
+## Game Area Data
+
+Game boards are based on geographic **Areas** imported from GeoJSON files.
+No grid data needs to be loaded — only area boundaries.
+
+Import command:
+```bash
+uv run python gridgame/manage.py import_areas --file <geojson_path> --name-property <prop>
 ```
+
+The `--name-property` argument specifies which GeoJSON feature property to use as the
+Area name in the database (e.g. `nimi_fi` for Finnish place names).
 
 ---
 
@@ -54,293 +87,103 @@ gridgame/
 │   ├── urls.py
 │   └── wsgi.py
 ├── game/
-│   ├── models.py
+│   ├── models.py           # User, Area, Board, BoardCell, Game, Visit, CellReport
+│   ├── grid_providers.py   # StatisticalGridProvider, H3GridProvider
 │   ├── serializers.py
-│   ├── views.py
-│   ├── urls.py
-│   └── services.py        # grid query logic, scoring
+│   ├── views.py            # Game API views
+│   ├── urls.py             # Game API URL routing
+│   ├── auth_views.py       # Authentication endpoints
+│   ├── editor_views.py     # Board editor views
+│   ├── editor_serializers.py
+│   ├── editor_urls.py
+│   ├── services.py         # Reserved for future scoring logic
+│   └── management/commands/
+│       └── import_areas.py
 ├── templates/
-│   └── index.html         # single HTML shell
+│   ├── index.html          # Main SPA shell
+│   ├── login.html
+│   └── editor/
+│       └── editor.html
 └── static/
     ├── js/
-    │   ├── app.js          # entry point, game state machine
-    │   ├── map.js          # Leaflet setup, layer management
-    │   ├── gps.js          # Geolocation API, dwell timer
-    │   ├── api.js          # fetch wrappers for all endpoints
-    │   └── grid.js         # Turf.js point-in-polygon, cell detection
-    └── css/
-        └── style.css
-```
-
----
-
-## Django Settings (relevant additions)
-
-```python
-INSTALLED_APPS = [
-    ...
-    'django.contrib.gis',
-    'rest_framework',
-    'game',
-]
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.contrib.gis.db.backends.postgis',
-        'NAME': '<dbname>',
-        'USER': '<user>',
-        ...
-    }
-}
+    │   ├── app.js           # Entry point, game state machine
+    │   ├── map.js           # Leaflet setup, layer management
+    │   ├── gps.js           # Geolocation API, dwell timer
+    │   ├── api.js           # Fetch wrappers for all endpoints
+    │   ├── grid.js          # Turf.js point-in-polygon, cell detection
+    │   └── editor/          # Board editor JS
+    ├── css/
+    │   └── style.css
+    └── vendor/              # Leaflet, Turf.js (served locally)
 ```
 
 ---
 
 ## Data Models
 
-```python
-# game/models.py
-from django.contrib.gis.db import models as gis_models
-from django.db import models
-import uuid
+### Core Models
 
+- **User** — Custom user model extending `AbstractUser`
+- **Area** — Geographic area imported from GeoJSON (polygon in EPSG:4326)
+- **Board** — Predefined game board linking an Area to a grid type
+- **BoardCell** — Individual cell in a board (enabled/disabled toggle for editor)
+- **Game** — A single game session (UUID PK, player token, board or center+radius)
+- **Visit** — A recorded cell visit (unique per game+cell_id, upsert pattern)
+- **CellReport** — Player report that a cell is inaccessible
 
-class Game(models.Model):
-    GRID_SIZES = [('250m', '250m'), ('1km', '1km'), ('5km', '5km')]
+### Key Fields
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    nickname = models.CharField(max_length=64)
-
-    # Play area: center point + radius (stored in 4326 for simplicity)
-    center = gis_models.PointField(srid=4326)
-    radius_m = models.IntegerField()          # meters, e.g. 5000
-    grid_size = models.CharField(max_length=8, choices=GRID_SIZES)
-
-    # Rules
-    min_dwell_s = models.IntegerField(default=10)   # seconds required in cell
-    time_limit_s = models.IntegerField(null=True, blank=True)  # None = unlimited
-
-    # State
-    total_cells = models.IntegerField()       # number of cells in play area
-    started_at = models.DateTimeField(auto_now_add=True)
-    finished_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        ordering = ['-started_at']
-
-
-class Visit(models.Model):
-    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='visits')
-    cell_id = models.CharField(max_length=64)   # identifier from grid table
-
-    entered_at = models.DateTimeField()
-    exited_at = models.DateTimeField()
-    dwell_s = models.IntegerField()             # computed: (exited_at - entered_at).seconds
-    visit_count = models.IntegerField(default=1)  # cumulative visits to this cell in this game
-
-    # Entry point coordinates (for debugging / future routing features)
-    entry_point = gis_models.PointField(srid=4326, null=True, blank=True)
-
-    class Meta:
-        # One row per cell per game; use upsert pattern on (game, cell_id)
-        unique_together = [('game', 'cell_id')]
-```
+- `Game.grid_type` — One of: `stat_250m`, `stat_1km`, `stat_5km`, `h3_res6`–`h3_res10`
+- `Game.play_area` — Polygon in EPSG:4326 (from board area or center+radius buffer)
+- `Game.snapshot_cell_ids` — JSON list of enabled cell IDs (for published boards)
+- `Game.player_token` — UUID identifying anonymous players
+- `Game.user` — Optional FK to authenticated user
 
 ---
 
 ## API Endpoints
 
-Base URL: `/api/`
+Base URL: `/api/v1/`
 
-### 1. Create Game
+### Game Endpoints
 
-```
-POST /api/games/
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/boards/` | List active game boards |
+| POST | `/api/v1/games/` | Create a new game |
+| GET | `/api/v1/games/list/` | List player's games |
+| GET | `/api/v1/games/{id}/` | Get game state (`?include_grid=true` for grid) |
+| POST | `/api/v1/games/{id}/visits/` | Record a cell visit |
+| POST | `/api/v1/games/{id}/finish/` | Finish a game |
+| DELETE | `/api/v1/games/{id}/delete/` | Delete a game |
 
-Request body:
-```json
-{
-  "nickname": "Aapo",
-  "center_lat": 60.1699,
-  "center_lon": 24.9384,
-  "radius_m": 5000,
-  "grid_size": "250m",
-  "min_dwell_s": 10,
-  "time_limit_s": null
-}
-```
+### Cell Reports
 
-Response:
-```json
-{
-  "game_id": "uuid",
-  "nickname": "Aapo",
-  "total_cells": 1247,
-  "min_dwell_s": 10,
-  "time_limit_s": null,
-  "started_at": "2025-01-01T12:00:00Z",
-  "grid": {
-    "type": "FeatureCollection",
-    "features": [
-      {
-        "type": "Feature",
-        "geometry": { "type": "Polygon", "coordinates": [...] },
-        "properties": { "cell_id": "5km_1234_5678" }
-      }
-    ]
-  }
-}
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/cells/report/` | Report a cell as inaccessible |
+| GET | `/api/v1/cells/{id}/reports/` | Get reports for a cell |
 
-The `grid` GeoJSON is returned **once** at game creation and cached in the browser
-(localStorage or JS variable). It is not re-fetched during the game.
+### Authentication
 
-### 2. Get Game State
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/v1/auth/status/` | Check auth status |
+| POST | `/api/v1/auth/register/` | Register new user |
+| POST | `/api/v1/auth/login/` | Login |
+| POST | `/api/v1/auth/logout/` | Logout |
+| POST | `/api/v1/auth/claim/` | Claim anonymous games for user |
 
-```
-GET /api/games/{game_id}/
-```
+### Board Editor (separate URL namespace)
 
-Response:
-```json
-{
-  "game_id": "uuid",
-  "nickname": "Aapo",
-  "total_cells": 1247,
-  "visited_count": 34,
-  "score_pct": 2.7,
-  "elapsed_s": 3721,
-  "finished_at": null,
-  "visits": [
-    { "cell_id": "...", "visit_count": 1, "dwell_s": 23 }
-  ]
-}
-```
-
-### 3. Record Cell Visit
-
-```
-POST /api/games/{game_id}/visits/
-```
-
-Request body:
-```json
-{
-  "cell_id": "5km_1234_5678",
-  "entered_at": "2025-01-01T12:05:00Z",
-  "exited_at": "2025-01-01T12:05:45Z",
-  "lat": 60.171,
-  "lon": 24.941
-}
-```
-
-Backend validates:
-- `dwell_s = (exited_at - entered_at).seconds >= game.min_dwell_s`
-- `cell_id` exists in the game's play area (cross-check against DB)
-
-Response:
-```json
-{
-  "ok": true,
-  "cell_id": "...",
-  "visit_count": 1,
-  "visited_count": 35,
-  "score_pct": 2.8
-}
-```
-
-On repeated visit to same cell: update `visit_count`, return updated state.
-Use `update_or_create` on `(game, cell_id)`.
-
-### 4. Finish Game
-
-```
-POST /api/games/{game_id}/finish/
-```
-
-Sets `finished_at`, returns final score summary.
-
----
-
-## services.py — Grid Query Logic
-
-```python
-# game/services.py
-from django.contrib.gis.geos import Point
-from django.contrib.gis.db.models.functions import Transform
-from django.db import connection
-
-GRID_TABLES = {
-    '250m': 'grid_250m',
-    '1km':  'grid_1km',
-    '5km':  'grid_5km',
-}
-
-def get_cells_in_radius(center_lat, center_lon, radius_m, grid_size):
-    """
-    Returns GeoJSON FeatureCollection of grid cells intersecting
-    a circle defined by center point and radius.
-    Uses raw SQL for PostGIS operations on existing grid tables
-    (not managed Django models).
-    """
-    table = GRID_TABLES[grid_size]
-
-    # Transform center to EPSG:3067 to match grid data, buffer in meters
-    sql = f"""
-        SELECT
-            cell_id,                          -- adjust column name if needed
-            ST_AsGeoJSON(ST_Transform(geom, 4326)) AS geojson
-        FROM {table}
-        WHERE ST_Intersects(
-            geom,
-            ST_Buffer(
-                ST_Transform(
-                    ST_SetSRID(ST_MakePoint(%s, %s), 4326),
-                    3067
-                ),
-                %s
-            )
-        )
-    """
-    with connection.cursor() as cursor:
-        cursor.execute(sql, [center_lon, center_lat, radius_m])
-        rows = cursor.fetchall()
-
-    features = [
-        {
-            "type": "Feature",
-            "geometry": json.loads(row[1]),
-            "properties": {"cell_id": row[0]}
-        }
-        for row in rows
-    ]
-    return {"type": "FeatureCollection", "features": features}, len(features)
-
-
-def validate_cell_in_game(game, cell_id):
-    """Verify cell_id belongs to the game's play area."""
-    table = GRID_TABLES[game.grid_size]
-    sql = f"""
-        SELECT EXISTS (
-            SELECT 1 FROM {table}
-            WHERE cell_id = %s
-            AND ST_Intersects(
-                geom,
-                ST_Buffer(
-                    ST_Transform(
-                        ST_SetSRID(ST_MakePoint(%s, %s), 4326),
-                        3067
-                    ),
-                    %s
-                )
-            )
-        )
-    """
-    with connection.cursor() as cursor:
-        cursor.execute(sql, [cell_id, game.center.x, game.center.y, game.radius_m])
-        return cursor.fetchone()[0]
-```
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/editor/api/boards/` | List boards for editor |
+| GET | `/editor/api/boards/{id}/` | Get board detail |
+| POST | `/editor/api/boards/{id}/generate/` | Generate cells for board |
+| GET | `/editor/api/boards/{id}/cells/` | Get board cells |
+| PATCH | `/editor/api/boards/{id}/cells/toggle/` | Toggle cells |
+| POST | `/editor/api/boards/{id}/publish/` | Publish board |
 
 ---
 
@@ -348,189 +191,58 @@ def validate_cell_in_game(game, cell_id):
 
 ### State Machine (app.js)
 
-The frontend maintains a simple game state:
-
-```javascript
-const state = {
-  gameId: null,
-  nickname: null,
-  grid: null,           // GeoJSON FeatureCollection (loaded once)
-  visitedCells: {},     // { cell_id: { visitCount, dwellS } }
-  currentCellId: null,  // cell currently occupied
-  cellEnteredAt: null,  // Date when current cell was entered
-  dwellTimer: null,     // setTimeout handle for min_dwell
-  totalCells: 0,
-};
-```
+Screens: **setup** (lobby) → **game** (active play) → **result** (finish)
 
 ### GPS Logic (gps.js)
 
 ```javascript
-// Poll GPS continuously during game
 navigator.geolocation.watchPosition(onPositionUpdate, onError, {
   enableHighAccuracy: true,
   maximumAge: 2000,
   timeout: 5000,
 });
-
-function onPositionUpdate(position) {
-  const { latitude, longitude } = position.coords;
-  const newCellId = detectCell(latitude, longitude);  // Turf.js, see grid.js
-
-  if (newCellId === state.currentCellId) return;  // still in same cell
-
-  // Left previous cell
-  if (state.currentCellId && state.dwellTimer) {
-    clearTimeout(state.dwellTimer);
-    // dwell was < min_dwell_s, visit not recorded
-  }
-
-  // Entered new cell
-  state.currentCellId = newCellId;
-  state.cellEnteredAt = new Date();
-
-  if (newCellId) {
-    state.dwellTimer = setTimeout(
-      () => recordVisit(newCellId, state.cellEnteredAt),
-      state.minDwellS * 1000
-    );
-  }
-}
 ```
+
+On each position update:
+1. Turf.js `booleanPointInPolygon` detects current cell (O(n) scan)
+2. If cell changed, start `min_dwell_s` timer
+3. On timer completion, POST visit to backend
 
 ### Cell Detection (grid.js)
 
-```javascript
-import * as turf from 'https://cdn.skypack.dev/@turf/turf';
-
-// Called on every GPS update, O(n) but fast enough for <2000 polygons
-function detectCell(lat, lon) {
-  const pt = turf.point([lon, lat]);
-  for (const feature of state.grid.features) {
-    if (turf.booleanPointInPolygon(pt, feature)) {
-      return feature.properties.cell_id;
-    }
-  }
-  return null;
-}
-```
-
-### Visit Recording (api.js → map.js)
-
-When `min_dwell` timer fires:
-1. POST to `/api/games/{id}/visits/` with `entered_at`, `exited_at = now()`, `cell_id`, coordinates
-2. On success: update `state.visitedCells`, call `map.markCellVisited(cell_id)`
-3. Update score display
-
-### Map Rendering (map.js)
-
-```javascript
-// Leaflet GeoJSON layer with style function
-const gridLayer = L.geoJSON(state.grid, {
-  style: (feature) => {
-    const visited = state.visitedCells[feature.properties.cell_id];
-    return {
-      fillColor: visited ? '#4CAF50' : 'transparent',
-      fillOpacity: visited ? 0.5 : 0,
-      color: '#2196F3',
-      weight: 1,
-      opacity: 0.6,
-    };
-  }
-}).addTo(map);
-
-function markCellVisited(cellId) {
-  gridLayer.eachLayer((layer) => {
-    if (layer.feature.properties.cell_id === cellId) {
-      layer.setStyle({ fillColor: '#4CAF50', fillOpacity: 0.5 });
-    }
-  });
-}
-```
+Uses Turf.js point-in-polygon against the locally cached GeoJSON grid.
+The grid is fetched once at game creation and not re-fetched during play.
 
 ---
 
-## Key Technical Challenges
+## Key Technical Details
 
-**GPS accuracy in urban areas**
-Accuracy of 5–20m is typical. At 250m cell size this is acceptable, but the device may
-briefly report a position in an adjacent cell near borders. The `min_dwell_s` timer acts
-as a debounce — spurious border crossings under 10 seconds are ignored.
+**Coordinate systems:**
+Statistical grid cells use EPSG:3067 internally. All API responses and frontend
+data use EPSG:4326 (WGS84). Transformations happen in the grid providers.
 
-**GeoJSON payload size**
-1600 cells × 250m polygons ≈ 500–800 KB uncompressed. Enable gzip in Django/nginx.
-This is a one-time load at game start; acceptable for a PoC on a mobile connection.
+**GPS accuracy:**
+5–20m typical. The `min_dwell_s` timer (default 10s) acts as a debounce for
+spurious border crossings between adjacent cells.
 
-**Cell identifier column**
-The existing grid tables may use a different column name than `cell_id`. Check with
-`\d grid_250m` and update `services.py` accordingly before running any queries.
+**GeoJSON payload size:**
+Grid GeoJSON is returned once at game creation. For large boards this can be
+500–800 KB uncompressed. Gzip compression is enabled.
 
-**Coordinate system mismatch**
-All existing grid data is in EPSG:3067. GPS data arrives in EPSG:4326. All ST_Intersects
-queries must transform the center point to 3067 before buffering (see services.py above).
-
----
-
-## MVP Scope
-
-The minimum viable version must include:
-
-1. Game creation form (nickname, center point from current GPS, radius, grid size)
-2. Grid cell fetch and display on Leaflet map
-3. Continuous GPS tracking with Turf.js cell detection
-4. `min_dwell_s` debounce timer
-5. Cell visit recorded to backend on dwell completion
-6. Visited cells highlighted green on map
-7. Live score display: `visited / total` cells and percentage
-8. "Finish game" button with final score
-
-**Explicitly out of MVP scope:**
-- Heatmap view (zoom-dependent rendering)
-- Routing suggestions
-- Time limit enforcement UI
-- Administrative area selection
-- Multiple players / leaderboard
-
----
-
-## Implementation Order
-
-### Phase 1 — Django backend (est. 1 day)
-1. Create Django project, install GeoDjango + DRF
-2. Define `Game` and `Visit` models, run migrations
-3. Implement `services.py`: `get_cells_in_radius`, `validate_cell_in_game`
-4. Implement API views and serializers for all four endpoints
-5. Wire up `config/urls.py`
-6. Test grid queries manually with known coordinates
-
-### Phase 2 — Frontend map shell (est. 0.5 days)
-1. Django template serving `index.html`
-2. Leaflet map centered on user's GPS position
-3. Game creation form → POST to API → load GeoJSON → render grid layer
-4. Basic CSS for mobile layout
-
-### Phase 3 — GPS and game logic (est. 0.5 days)
-1. `watchPosition` loop in `gps.js`
-2. Turf.js cell detection in `grid.js`
-3. `min_dwell` timer logic
-4. Visit POST on timer completion
-5. Map cell highlighting on visit
-
-### Phase 4 — Game flow and score (est. 0.5 days)
-1. Score counter (visited / total, %)
-2. Elapsed time display
-3. "Finish game" button → POST finish endpoint → summary view
+**Player identification:**
+Anonymous players are identified by a UUID `player_token` stored in localStorage.
+Authenticated users can claim anonymous games via `/api/v1/auth/claim/`.
 
 ---
 
 ## Notes for the Coding Agent
 
-- Verify grid table column names (`cell_id`, `geom`) before writing any SQL
-- The `Game.center` field is a `PointField(srid=4326)` — store as `Point(lon, lat, srid=4326)`
+- Grid cells are virtual — never query the database for grid geometries
+- Use `get_grid_provider(grid_type)` to get the correct provider
+- `Game.center` is `PointField(srid=4326)` — store as `Point(lon, lat, srid=4326)`
 - Use `update_or_create(game=game, cell_id=cell_id, defaults={...})` for Visit upserts
-- Django REST Framework `ModelViewSet` is fine for Game CRUD; use `APIView` for
-  the custom `/visits/` and `/finish/` endpoints for clarity
-- All timestamps are UTC (`USE_TZ = True` in settings)
-- Enable CORS for local development (`django-cors-headers`) if frontend is served separately
-- For production-like PoC: serve static files with WhiteNoise
-- Turf.js via CDN skypack or esm.sh is simplest; no build toolchain needed
+- All timestamps are UTC (`USE_TZ = True`)
+- Static files served with WhiteNoise
+- Turf.js and Leaflet served from `static/vendor/`, not from CDN
+- API base URL is `/api/v1/`
+- Board editor is under `/editor/` with its own URL namespace

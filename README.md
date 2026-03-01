@@ -39,7 +39,7 @@ tilastoruudukko/
 │   ├── game/            # Main app (models, views, serializers, services)
 │   ├── templates/       # HTML shells (index.html, login.html, editor)
 │   └── static/          # JS, CSS, vendor libs
-├── data/raw/            # Grid CSV source files (not in git)
+├── data/raw/            # GeoJSON area files (not in git)
 ├── docker-compose.yml   # Production Docker setup
 ├── docker-compose.local.yml  # Local Docker setup
 ├── Justfile             # Development task runner
@@ -52,7 +52,7 @@ tilastoruudukko/
 - PostgreSQL with PostGIS extension
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
 - [just](https://github.com/casey/just) (task runner)
-- Grid CSV data files from Tilastokeskus (placed in `data/raw/`)
+- GeoJSON files for game area boundaries (placed in `data/raw/`)
 
 ## Getting Started
 
@@ -111,34 +111,22 @@ just migrate
 uv run python gridgame/manage.py createsuperuser
 ```
 
-### 7. Load grid data
+### 7. Import game areas
 
-Place the Tilastokeskus CSV files in `data/raw/`:
-- `hila5km_linkki.csv` (~16K rows)
-- `hila1km_linkki.csv` (~393K rows)
-- `hila250m_linkki.csv` (~6.3M rows)
+Grid cells (both Tilastokeskus statistical grids and H3 hexagons) are computed
+on the fly — no grid data needs to be loaded into the database. However, game
+boards are based on geographic **areas** that must be imported from GeoJSON files.
 
-Load all grid sizes:
-
-```bash
-just load-grid-all
-```
-
-Or load only the 5 km grid for quick testing:
-
-```bash
-just load-grid-5km
-```
-
-### 8. Import game areas (optional)
-
-Import predefined areas from a GeoJSON file:
+Import areas from a GeoJSON file:
 
 ```bash
 just import-areas data/raw/areas.geojson nimi_fi
 ```
 
-### 9. Start the development server
+The second argument (`nimi_fi`) is the GeoJSON feature property name used as the
+Area name in the database. Each feature in the file must have this property.
+
+### 8. Start the development server
 
 ```bash
 just dev
@@ -153,9 +141,7 @@ The app is now available at `http://localhost:8000/`.
 | `just dev`             | Start the development server             |
 | `just migrate`         | Run database migrations                  |
 | `just makemigrations`  | Create new migrations                    |
-| `just load-grid-all`   | Load all grid data (5 km, 1 km, 250 m)  |
-| `just load-grid-5km`   | Load only 5 km grid (quick)             |
-| `just import-areas`    | Import areas from GeoJSON                |
+| `just import-areas <file> <prop>` | Import areas from GeoJSON     |
 | `just lint`            | Run linter and format checks             |
 | `just fix`             | Auto-fix lint and formatting issues      |
 | `just test`            | Run test suite                           |
@@ -169,7 +155,6 @@ The app is now available at `http://localhost:8000/`.
 | `just docker-up-d`     | Start containers in background           |
 | `just docker-down`     | Stop containers                          |
 | `just docker-migrate`  | Run migrations in Docker                 |
-| `just docker-load-grid-all` | Load all grid data in Docker        |
 | `just docker-manage createsuperuser` | Run manage.py commands in Docker |
 
 ## API
