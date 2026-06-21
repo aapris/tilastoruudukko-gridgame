@@ -19,6 +19,11 @@ ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").sp
 _trusted_origins = os.environ.get("CSRF_TRUSTED_ORIGINS", "")
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in _trusted_origins.split(",") if o.strip()]
 
+# GeoDjango: explicit GDAL/GEOS library paths (e.g. Homebrew on macOS).
+# When unset, Django falls back to its own library search.
+GDAL_LIBRARY_PATH = os.environ.get("GDAL_LIBRARY_PATH")
+GEOS_LIBRARY_PATH = os.environ.get("GEOS_LIBRARY_PATH")
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
