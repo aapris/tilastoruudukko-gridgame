@@ -616,6 +616,24 @@ button:disabled {
   background: #444;
 }
 
+/* Lift bottom-right map controls (scale bar, attribution) above the HUD */
+#game-screen .maplibregl-ctrl-bottom-right {
+  bottom: var(--hud-height, 5.5rem);
+}
+
+/* Distance label shown at the map-center end of the GPS distance line */
+.distance-label {
+  background: rgba(26, 26, 46, 0.92);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
 /* MapLibre popup overrides */
 .maplibregl-popup-close-button {
   width: auto;

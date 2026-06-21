@@ -6,7 +6,7 @@ const GPS = {
 
   /**
    * Start watching the user's position.
-   * @param {Function} onUpdate - Callback with (lat, lon, accuracy).
+   * @param {Function} onUpdate - Callback with (lat, lon, accuracy, heading).
    * @param {Function} onError - Callback with error message.
    */
   start(onUpdate, onError) {
@@ -20,7 +20,8 @@ const GPS = {
         onUpdate(
           position.coords.latitude,
           position.coords.longitude,
-          position.coords.accuracy
+          position.coords.accuracy,
+          position.coords.heading
         );
       },
       (err) => {

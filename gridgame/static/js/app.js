@@ -23,6 +23,7 @@ const App = {
     recenterDelayS: 15,
     mapStyleOSM: false,
     wakeLockEnabled: true,
+    trackSeconds: 600,
   },
 
   /** Screen Wake Lock sentinel (non-null while lock is held). */
@@ -91,9 +92,11 @@ const App = {
       settingsRecenterDelayRow: document.getElementById('settings-recenter-delay-row'),
       settingsMapStyle: document.getElementById('settings-map-style'),
       settingsWakeLock: document.getElementById('settings-wake-lock'),
+      settingsTrackSeconds: document.getElementById('settings-track-seconds'),
       settingsSaveBtn: document.getElementById('settings-save-btn'),
       settingsCancelBtn: document.getElementById('settings-cancel-btn'),
       outsideGridBar: document.getElementById('outside-grid-bar'),
+      hud: document.getElementById('hud'),
       // Auth elements
       authBar: document.getElementById('auth-bar'),
       authUser: document.getElementById('auth-user'),
@@ -109,6 +112,15 @@ const App = {
       authCancelBtn: document.getElementById('auth-cancel-btn'),
       authError: document.getElementById('auth-error'),
     };
+
+    // Keep --hud-height in sync so the bottom-right scale bar stays above the HUD.
+    if (this.els.hud && 'ResizeObserver' in window) {
+      const syncHudHeight = () => {
+        document.documentElement.style.setProperty('--hud-height', `${this.els.hud.offsetHeight}px`);
+      };
+      new ResizeObserver(syncHudHeight).observe(this.els.hud);
+      syncHudHeight();
+    }
 
     this.els.lobbyNewGameBtn.addEventListener('click', () => this.onLobbyNewGame());
     this.els.boardSelect.addEventListener('change', () => this.onBoardSelectChange());
@@ -176,6 +188,8 @@ const App = {
     if (osm !== null) this.settings.mapStyleOSM = osm === 'true';
     const wl = localStorage.getItem('settings_wakeLockEnabled');
     if (wl !== null) this.settings.wakeLockEnabled = wl === 'true';
+    const track = localStorage.getItem('settings_trackSeconds');
+    if (track !== null) this.settings.trackSeconds = parseInt(track, 10);
   },
 
   /** Persist settings to localStorage. */
@@ -184,6 +198,7 @@ const App = {
     localStorage.setItem('settings_recenterDelayS', this.settings.recenterDelayS);
     localStorage.setItem('settings_mapStyleOSM', this.settings.mapStyleOSM);
     localStorage.setItem('settings_wakeLockEnabled', this.settings.wakeLockEnabled);
+    localStorage.setItem('settings_trackSeconds', this.settings.trackSeconds);
   },
 
   /** Apply current settings to the map and sync UI. */
@@ -191,6 +206,7 @@ const App = {
     GameMap.setAutoCenter(this.settings.autoCenterEnabled);
     GameMap.setRecenterDelay(this.settings.recenterDelayS);
     GameMap.setGameBaseMap(this.settings.mapStyleOSM);
+    GameMap.setTrackSeconds(this.settings.trackSeconds);
     this._updateLayerBtn();
     if (this.state.gameId) {
       if (this.settings.wakeLockEnabled) {
@@ -241,6 +257,7 @@ const App = {
     this.els.settingsRecenterDelayRow.style.display = this.settings.autoCenterEnabled ? '' : 'none';
     this.els.settingsMapStyle.checked = this.settings.mapStyleOSM;
     this.els.settingsWakeLock.checked = this.settings.wakeLockEnabled;
+    this.els.settingsTrackSeconds.value = this.settings.trackSeconds;
     this.els.settingsModal.style.display = '';
   },
 
@@ -255,6 +272,7 @@ const App = {
     this.settings.recenterDelayS = parseInt(this.els.settingsRecenterDelay.value, 10) || 15;
     this.settings.mapStyleOSM = this.els.settingsMapStyle.checked;
     this.settings.wakeLockEnabled = this.els.settingsWakeLock.checked;
+    this.settings.trackSeconds = parseInt(this.els.settingsTrackSeconds.value, 10) || 600;
     this.saveSettings();
     this.applySettings();
     this.closeSettingsModal();
@@ -749,7 +767,7 @@ const App = {
     GameMap.loadGrid(this.state.grid, this.state.visitedCells);
 
     GPS.start(
-      (lat, lon, accuracy) => this.onPositionUpdate(lat, lon, accuracy),
+      (lat, lon, accuracy, heading) => this.onPositionUpdate(lat, lon, accuracy, heading),
       (errMsg) => { this.els.cellStatus.textContent = errMsg; }
     );
 
@@ -798,9 +816,11 @@ const App = {
    * @param {number} lat - Current latitude.
    * @param {number} lon - Current longitude.
    * @param {number} accuracy - GPS accuracy in meters.
+   * @param {number|null} heading - Direction of travel in degrees, or null.
    */
-  onPositionUpdate(lat, lon, accuracy) {
-    GameMap.updatePosition(lat, lon);
+  onPositionUpdate(lat, lon, accuracy, heading) {
+    GameMap.updatePosition(lat, lon, heading);
+    GameMap.addTrackPoint(lat, lon);
 
     const newCellId = Grid.detectCell(lat, lon, this.state.grid);
 
@@ -921,7 +941,7 @@ const App = {
     this.els.pauseModal.style.display = 'none';
     this.els.cellStatus.textContent = '';
     GPS.start(
-      (lat, lon, accuracy) => this.onPositionUpdate(lat, lon, accuracy),
+      (lat, lon, accuracy, heading) => this.onPositionUpdate(lat, lon, accuracy, heading),
       (errMsg) => { this.els.cellStatus.textContent = errMsg; }
     );
     this._acquireWakeLock();

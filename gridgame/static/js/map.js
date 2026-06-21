@@ -24,6 +24,21 @@ const GameMap = {
   // Game player marker
   _playerMarker: null,
 
+  // Distance line (player -> map center when panned away)
+  _playerLngLat: null,
+  _distanceLineSourceId: 'distance-line',
+  _distanceLineLayerId: 'distance-line-layer',
+  _distanceLabelMarker: null,
+
+  // Heading (direction of travel) for the player arrow
+  _lastHeading: 0,
+
+  // Recent-positions track
+  _trackPoints: [],       // [{ lon, lat, t }]  (t = epoch ms)
+  _trackSeconds: 600,
+  _trackSourceId: 'track-line',
+  _trackLayerId: 'track-line-layer',
+
   // Auto-center settings
   _autoCenterEnabled: true,
   _userMoved: false,
@@ -193,12 +208,19 @@ const GameMap = {
     clearTimeout(this._recenterTimer);
     this._recenterTimer = null;
     this._userMoved = false;
+    if (this._distanceLabelMarker) {
+      this._distanceLabelMarker.remove();
+      this._distanceLabelMarker = null;
+    }
     if (this.map) {
       this.map.remove();
       this.map = null;
     }
     this._mapReady = null;
     this._playerMarker = null;
+    this._playerLngLat = null;
+    this._lastHeading = 0;
+    this._trackPoints = [];
     this._visitedCellIds = new Set();
     this._currentCellId = null;
   },
@@ -220,6 +242,12 @@ const GameMap = {
 
     // Move zoom control to top-right
     this.map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+    // Scale bar in the bottom-right corner (lifted above the HUD via CSS)
+    this.map.addControl(new maplibregl.ScaleControl({ maxWidth: 100, unit: 'metric' }), 'bottom-right');
+
+    // Redraw the distance line whenever the viewport center changes
+    this.map.on('move', () => this._updateDistanceLine());
 
     this._useOSM = false;
     this._mapReady = new Promise((resolve) => {
@@ -295,7 +323,7 @@ const GameMap = {
           'fill-opacity': [
             'case',
             ['boolean', ['feature-state', 'visited'], false],
-            0.5,
+            0.28,
             ['boolean', ['feature-state', 'reported'], false],
             0.15,
             0,
@@ -315,6 +343,8 @@ const GameMap = {
             '#FF9800',
             ['boolean', ['feature-state', 'reported'], false],
             '#f44336',
+            ['boolean', ['feature-state', 'visited'], false],
+            '#2E7D32',
             '#2196F3',
           ],
           'line-width': [
@@ -323,7 +353,9 @@ const GameMap = {
             3,
             ['boolean', ['feature-state', 'reported'], false],
             2,
-            1.5,
+            ['boolean', ['feature-state', 'visited'], false],
+            2,
+            1,
           ],
           'line-opacity': [
             'case',
@@ -331,7 +363,9 @@ const GameMap = {
             1,
             ['boolean', ['feature-state', 'reported'], false],
             0.8,
-            0.6,
+            ['boolean', ['feature-state', 'visited'], false],
+            0.95,
+            0.35,
           ],
         },
       });
@@ -561,19 +595,176 @@ const GameMap = {
    * Update the user's position marker on the map.
    * @param {number} lat - Current latitude.
    * @param {number} lon - Current longitude.
+   * @param {number|null} heading - Direction of travel in degrees, or null.
    */
-  updatePosition(lat, lon) {
+  updatePosition(lat, lon, heading) {
+    this._playerLngLat = [lon, lat];
     if (!this._playerMarker) {
-      const el = this._createDotMarker('#2196F3');
-      this._playerMarker = new maplibregl.Marker({ element: el })
+      const el = this._createArrowMarker('#2196F3');
+      this._playerMarker = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
         .setLngLat([lon, lat])
         .addTo(this.map);
     } else {
       this._playerMarker.setLngLat([lon, lat]);
     }
+    // Rotate the arrow toward the direction of travel. GPS heading is null when
+    // stationary or unsupported — keep the last known heading in that case.
+    if (heading != null && !Number.isNaN(heading)) {
+      this._lastHeading = heading;
+    }
+    this._playerMarker.setRotation(this._lastHeading);
     if (this._autoCenterEnabled && !this._userMoved && this.map) {
       this.map.easeTo({ center: [lon, lat], duration: 500 });
     }
+    this._updateDistanceLine();
+  },
+
+  /**
+   * Ensure the distance-line source and layer exist on the map.
+   */
+  _ensureDistanceLayers() {
+    if (this.map.getSource(this._distanceLineSourceId)) return;
+    this.map.addSource(this._distanceLineSourceId, {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    this.map.addLayer({
+      id: this._distanceLineLayerId,
+      type: 'line',
+      source: this._distanceLineSourceId,
+      layout: { 'line-cap': 'round', visibility: 'none' },
+      paint: {
+        'line-color': '#1976D2',
+        'line-width': 2.5,
+        'line-dasharray': [2, 1.5],
+      },
+    });
+  },
+
+  /**
+   * Hide the distance line and remove its label marker.
+   */
+  _hideDistanceLine() {
+    if (this.map && this.map.getLayer(this._distanceLineLayerId)) {
+      this.map.setLayoutProperty(this._distanceLineLayerId, 'visibility', 'none');
+    }
+    if (this._distanceLabelMarker) {
+      this._distanceLabelMarker.remove();
+      this._distanceLabelMarker = null;
+    }
+  },
+
+  /**
+   * Format a distance for display: metres below 10 km, kilometres above.
+   * @param {number} meters - Distance in metres.
+   * @returns {string} Formatted distance with one decimal.
+   */
+  _formatDistance(meters) {
+    if (meters >= 10000) {
+      return `${(meters / 1000).toFixed(1)} km`;
+    }
+    return `${meters.toFixed(1)} m`;
+  },
+
+  /**
+   * Draw a line from the player to the map center when the map has been
+   * panned away from the player, with a distance label at the center end.
+   */
+  _updateDistanceLine() {
+    if (!this.map || !this._playerLngLat || !this.map.isStyleLoaded()) return;
+
+    const center = this.map.getCenter();
+    const playerPx = this.map.project(this._playerLngLat);
+    const centerPx = this.map.project(center);
+    const pixelDist = Math.hypot(playerPx.x - centerPx.x, playerPx.y - centerPx.y);
+
+    // Map is (almost) centered on the player — nothing to show.
+    if (pixelDist < 40) {
+      this._hideDistanceLine();
+      return;
+    }
+
+    this._ensureDistanceLayers();
+
+    const centerLngLat = [center.lng, center.lat];
+    this.map.getSource(this._distanceLineSourceId).setData({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: [this._playerLngLat, centerLngLat] },
+    });
+    this.map.setLayoutProperty(this._distanceLineLayerId, 'visibility', 'visible');
+
+    const meters = turf.distance(turf.point(this._playerLngLat), turf.point(centerLngLat), {
+      units: 'meters',
+    });
+
+    if (!this._distanceLabelMarker) {
+      const el = document.createElement('div');
+      el.className = 'distance-label';
+      this._distanceLabelMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat(centerLngLat)
+        .addTo(this.map);
+    }
+    this._distanceLabelMarker.getElement().textContent = this._formatDistance(meters);
+    this._distanceLabelMarker.setLngLat(centerLngLat);
+  },
+
+  /**
+   * Set how many seconds of recent positions to keep in the track, then redraw.
+   * @param {number} seconds - Track length in seconds (0 disables the track).
+   */
+  setTrackSeconds(seconds) {
+    this._trackSeconds = seconds;
+    this._pruneAndDrawTrack();
+  },
+
+  /**
+   * Append the current position to the recent-positions track and redraw it.
+   * @param {number} lat - Current latitude.
+   * @param {number} lon - Current longitude.
+   */
+  addTrackPoint(lat, lon) {
+    this._trackPoints.push({ lon, lat, t: Date.now() });
+    this._pruneAndDrawTrack();
+  },
+
+  /**
+   * Ensure the track source and layer exist on the map.
+   */
+  _ensureTrackLayers() {
+    if (this.map.getSource(this._trackSourceId)) return;
+    this.map.addSource(this._trackSourceId, {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    this.map.addLayer({
+      id: this._trackLayerId,
+      type: 'line',
+      source: this._trackSourceId,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': '#e53935',
+        'line-width': 2,
+        'line-opacity': 0.8,
+      },
+    });
+  },
+
+  /**
+   * Drop track points older than the configured window and redraw the line.
+   */
+  _pruneAndDrawTrack() {
+    const cutoff = Date.now() - this._trackSeconds * 1000;
+    this._trackPoints = this._trackPoints.filter((p) => p.t >= cutoff);
+
+    if (!this.map || !this.map.isStyleLoaded()) return;
+    this._ensureTrackLayers();
+
+    const coords = this._trackSeconds > 0 ? this._trackPoints.map((p) => [p.lon, p.lat]) : [];
+    const data =
+      coords.length >= 2
+        ? { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }
+        : { type: 'FeatureCollection', features: [] };
+    this.map.getSource(this._trackSourceId).setData(data);
   },
 
   /**
@@ -654,6 +845,23 @@ const GameMap = {
     el.style.backgroundColor = color;
     el.style.border = '2px solid #fff';
     el.style.boxShadow = '0 0 4px rgba(0,0,0,0.3)';
+    return el;
+  },
+
+  /**
+   * Create a navigation-style arrow marker pointing north (rotation 0).
+   * @param {string} color - CSS fill color.
+   * @returns {HTMLElement} Marker element containing an SVG arrow.
+   */
+  _createArrowMarker(color) {
+    const el = document.createElement('div');
+    el.style.width = '30px';
+    el.style.height = '30px';
+    el.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,0.4))';
+    el.innerHTML =
+      '<svg width="30" height="30" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">' +
+      `<path d="M12 2 L19 21 L12 16.5 L5 21 Z" fill="${color}" ` +
+      'stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>';
     return el;
   },
 
