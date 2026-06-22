@@ -146,6 +146,7 @@ The app is now available at `http://localhost:8000/`.
 | `just fix`             | Auto-fix lint and formatting issues      |
 | `just test`            | Run test suite                           |
 | `just shell`           | Open Django shell                        |
+| `just collectstatic`   | Collect & content-hash static files      |
 
 ### Docker
 
@@ -155,7 +156,44 @@ The app is now available at `http://localhost:8000/`.
 | `just docker-up-d`     | Start containers in background           |
 | `just docker-down`     | Stop containers                          |
 | `just docker-migrate`  | Run migrations in Docker                 |
+| `just docker-collectstatic` | Collect & hash static files in Docker |
 | `just docker-manage createsuperuser` | Run manage.py commands in Docker |
+
+## Static files & cache busting
+
+Browsers (especially mobile) cache JS/CSS aggressively. This project busts the
+cache **at the application level** using content-hashed filenames — no per-deploy
+nginx changes are needed.
+
+How it works:
+
+1. **Hashed filenames.** `STORAGES["staticfiles"]` uses
+   `config.storage.SkipVendorManifestStorage` (a WhiteNoise
+   `CompressedManifestStaticFilesStorage` subclass). `collectstatic` rewrites
+   `js/app.js` → `js/app.<hash>.js`; the hash changes only when the file content
+   changes. Vendored libraries under `static/vendor/` are intentionally **not**
+   hashed (they reference missing source maps) — version them by changing their
+   path/filename when you upgrade.
+2. **Templates use `{% static %}`**, so the rendered HTML always points at the
+   current hashed URL.
+3. **The HTML shell is never cached.** The `index_view` is decorated with
+   `@never_cache`, so every load fetches fresh HTML and therefore the newest
+   hashed asset URLs. Changed files get a new URL (fetched immediately); unchanged
+   files keep their URL (served from cache).
+
+**Required on every deploy:** run `collectstatic` so the hashes are regenerated,
+and make sure the directory nginx serves at `/static/` is that `collectstatic`
+output (`STATIC_ROOT`). The Dockerfile runs `collectstatic` at build time; if you
+bind-mount the source over `/app` (see `docker-compose.yml`) that build-time output
+is shadowed, so run `just docker-collectstatic` after start, or serve
+`STATIC_ROOT` directly. Set `DJANGO_DEBUG=False` in production.
+
+> With hashed filenames the existing nginx rule
+> (`expires 30d; Cache-Control "public, immutable"`) is correct and desirable: a
+> new deploy changes the filename, so clients fetch the new file even though the
+> old one is cached "forever". No nginx change is required for cache busting — keep
+> the immutable header, just ensure `/static/` points at fresh `collectstatic`
+> output.
 
 ## API
 

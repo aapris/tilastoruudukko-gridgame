@@ -34,6 +34,10 @@ test:
 shell:
     uv run python gridgame/manage.py shell
 
+# Collect & content-hash static files into STATIC_ROOT (run on every deploy for cache busting)
+collectstatic:
+    uv run python gridgame/manage.py collectstatic --noinput
+
 # --- Docker commands ---
 
 # Build and start all containers
@@ -62,6 +66,10 @@ docker-makemigrations:
 # Import areas from a GeoJSON file in Docker
 docker-import-areas file name_property:
     docker compose exec web uv run python gridgame/manage.py import_areas --file {{ file }} --name-property {{ name_property }}
+
+# Collect & content-hash static files in Docker (run on every deploy for cache busting)
+docker-collectstatic:
+    docker compose exec web uv run python gridgame/manage.py collectstatic --noinput
 
 # Django shell in Docker
 docker-shell:
