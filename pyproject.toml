@@ -51,6 +51,11 @@ combine-as-imports = true
 lines-after-imports = 2
 known-first-party = ["game", "config"]
 
+[tool.coverage.run]
+source = ["gridgame"]
+branch = true
+omit = ["*/migrations/*"]
+
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
 pythonpath = ["gridgame"]
